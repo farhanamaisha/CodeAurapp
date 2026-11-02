@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Compiler generated files
+compiler/lexer/lex.yy.c
+compiler/parser/parser.tab.c
+compiler/parser/parser.tab.h
+compiler/*.o
+compiler/codeaura
