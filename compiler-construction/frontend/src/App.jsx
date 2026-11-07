@@ -2,173 +2,188 @@
 import { useState } from "react";
 import "./styles/App.css";
 
-const starterCode = `int age = 20;
-int total = 0;
+const starterCode = `public class Test {
+    public static void main(String[] args) {
+        int a = 10;
+        int b = 20;
+        int sum = a + b;
 
-if (age > 18) {
-    print(age);
-}
-
-for (int i = 0; i < 5; i = i + 1) {
-    total = total + i;
-}
-
-print(total);`;
+        System.out.println(sum);
+    }
+}`;
 
 export default function App() {
-  const [source, setSource] = useState(starterCode);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+    const [source, setSource] = useState(starterCode);
+    const [result, setResult] = useState(null);
+    const [loading, setLoading] = useState(false);
 
-  async function compileCode() {
-    setLoading(true);
-    setResult(null);
+    async function compileCode() {
+        setLoading(true);
+        setResult(null);
 
-    try {
-      const response = await fetch("/api/compile", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ source })
-      });
+        try {
+            const response = await fetch("/api/compile", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ source })
+            });
 
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
+            const data = await response.json();
 
-      const data = await response.json();
-      setResult(data);
+            if (!response.ok) {
+                throw new Error(data.errors?.join(", ") || `Server error: ${response.status}`);
+            }
 
-    } catch (error) {
-      setResult({
-        success: false,
-        errors: [
-          error.message +
-          ". Check that the Java backend is running on port 8080."
-        ]
-      });
-    } finally {
-      setLoading(false);
+            setResult(data);
+        } catch (error) {
+            setResult({
+                success: false,
+                errors: [
+                    error.message || "Could not connect to Java compiler.",
+                    "Make sure the Java backend is running on port 8080."
+                ]
+            });
+        } finally {
+            setLoading(false);
+        }
     }
-  }
 
-  return (
-    <main className="app">
-      <header className="header">
-        <div>
-          <h1>Mini Language Compiler</h1>
-          <p>Compiler Construction Project</p>
-        </div>
-        <span className="language-tag">Java Backend</span>
-      </header>
+    return (
+        <main className="app">
+            <header className="header">
+                <div>
+                    <h1>Java Compiler</h1>
+                    <p>Compiler Construction Project</p>
+                </div>
+                <span className="language-tag">Java · JFlex · CUP</span>
+            </header>
 
-      <section className="editor-section">
-        <div className="section-heading">
-          <h2>Source Code</h2>
-          <button
-            className="run-button"
-            onClick={compileCode}
-            disabled={loading}
-          >
-            {loading ? "Compiling..." : "▶ Run Compiler"}
-          </button>
-        </div>
+            <section className="editor-section">
+                <div className="section-heading">
+                    <div>
+                        <h2>Java Source Code</h2>
+                        <p className="hint">Write your Java program below.</p>
+                    </div>
 
-        <textarea
-          className="code-editor"
-          spellCheck="false"
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          placeholder="Write your mini-language code here..."
-        />
-      </section>
+                    <button
+                        className="run-button"
+                        onClick={compileCode}
+                        disabled={loading || !source.trim()}
+                    >
+                        {loading ? "Compiling..." : "▶ Compile Java"}
+                    </button>
+                </div>
 
-      {result && (
-        <section className="results">
-          <div className="result-status">
-            <h2>Compiler Results</h2>
-            <span className={result.success ? "success" : "failure"}>
-              {result.success ? "Compilation successful" : "Compilation failed"}
-            </span>
-          </div>
+                <textarea
+                    className="code-editor"
+                    spellCheck="false"
+                    value={source}
+                    onChange={(event) => setSource(event.target.value)}
+                    placeholder="Write Java code here..."
+                />
+            </section>
 
-          {result.errors?.length > 0 && (
-            <div className="panel error-panel">
-              <h3>Errors</h3>
-              {result.errors.map((error, index) => (
-                <p key={index}>{error}</p>
-              ))}
-            </div>
-          )}
+            {result && (
+                <section className="results">
+                    <div className="result-status">
+                        <h2>Compilation Results</h2>
+                        <span className={result.success ? "success" : "failure"}>
+                            {result.success
+                                ? "✓ Compilation Successful"
+                                : "✕ Compilation Failed"}
+                        </span>
+                    </div>
 
-          {result.tokens && (
-            <div className="panel">
-              <h3>Lexical Analysis — Tokens</h3>
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Lexeme</th>
-                      <th>Line</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.tokens.map((token, index) => (
-                      <tr key={index}>
-                        <td>{token.type}</td>
-                        <td>{token.lexeme || "EOF"}</td>
-                        <td>{token.line}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+                    {result.errors?.length > 0 && (
+                        <div className="panel error-panel">
+                            <h3>Compiler Errors</h3>
+                            {result.errors.map((error, index) => (
+                                <p key={index}>{error}</p>
+                            ))}
+                        </div>
+                    )}
 
-          {result.ast && (
-            <div className="panel">
-              <h3>Syntax Analysis — Abstract Syntax Tree</h3>
-              <pre>{JSON.stringify(result.ast, null, 2)}</pre>
-            </div>
-          )}
+                    {result.tokens && (
+                        <div className="panel">
+                            <h3>1. Lexical Analysis — Tokens</h3>
+                            <div className="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Token Type</th>
+                                            <th>Lexeme</th>
+                                            <th>Line</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {result.tokens.map((token, index) => (
+                                            <tr key={index}>
+                                                <td>{token.type}</td>
+                                                <td>{token.lexeme || "EOF"}</td>
+                                                <td>{token.line}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
 
-          {result.symbols && (
-            <div className="panel">
-              <h3>Symbol Table</h3>
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Line</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.symbols.map((symbol, index) => (
-                      <tr key={index}>
-                        <td>{symbol.name}</td>
-                        <td>{symbol.type}</td>
-                        <td>{symbol.line}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+                    {result.ast && (
+                        <div className="panel">
+                            <h3>2. Syntax Analysis — Abstract Syntax Tree</h3>
+                            <pre>{JSON.stringify(result.ast, null, 2)}</pre>
+                        </div>
+                    )}
 
-          {result.tac && (
-            <div className="panel">
-              <h3>Intermediate Code — Three Address Code</h3>
-              <pre>{result.tac.join("\n") || "No TAC generated."}</pre>
-            </div>
-          )}
-        </section>
-      )}
-    </main>
-  );
+                    {result.symbols && (
+                        <div className="panel">
+                            <h3>3. Semantic Analysis — Symbol Table</h3>
+                            {result.symbols.length > 0 ? (
+                                <div className="table-wrapper">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Variable</th>
+                                                <th>Data Type</th>
+                                                <th>Line</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {result.symbols.map((symbol, index) => (
+                                                <tr key={index}>
+                                                    <td>{symbol.name}</td>
+                                                    <td>{symbol.type}</td>
+                                                    <td>{symbol.line}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <p>No variables declared.</p>
+                            )}
+                        </div>
+                    )}
+
+                    {result.tac && (
+                        <div className="panel">
+                            <h3>4. Intermediate Code — Three Address Code</h3>
+                            <pre>
+                                {result.tac.length > 0
+                                    ? result.tac.join("\n")
+                                    : "No intermediate code generated."}
+                            </pre>
+                        </div>
+                    )}
+                </section>
+            )}
+
+            <footer className="footer">
+                Java Compiler · Compiler Construction
+            </footer>
+        </main>
+    );
 }

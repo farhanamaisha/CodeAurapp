@@ -2,20 +2,36 @@
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
-import lexer.Lexer;
-import lexer.Token;
-import parser.Parser;
+import lexer.JavaLexer;
+import parser.JavaParser;
+import parser.sym;
+
+import java_cup.runtime.Symbol;
+
 import ast.ASTNode;
 import semantic.SemanticAnalyzer;
-import symboltable.Symbol;
 import intermediate.TACGenerator;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 public class Main {
+
+    private static class TokenInfo {
+        String type;
+        String lexeme;
+        int line;
+
+        TokenInfo(String type, String lexeme, int line) {
+            this.type = type;
+            this.lexeme = lexeme;
+            this.line = line;
+        }
+    }
 
     public static void main(String[] args) throws IOException {
 
@@ -58,16 +74,35 @@ public class Main {
                 throw new RuntimeException("Please enter some code.");
             }
 
-            List<Token> tokens = new Lexer(source).tokenize();
+            // Step 1: Lexical Analysis using JFlex.
+            List<TokenInfo> tokens = tokenize(source);
 
-            ASTNode ast = new Parser(tokens).parse();
+            // Step 2: Syntax Analysis using CUP.
+            JavaLexer scanner = new JavaLexer(
+                new StringReader(source)
+            );
 
+            JavaParser parser = new JavaParser(scanner);
+
+            Symbol parsed = parser.parse();
+
+            ASTNode ast = (ASTNode) parsed.value;
+
+            if (ast == null) {
+                throw new RuntimeException(
+                    "Parser did not generate an AST."
+                );
+            }
+
+            // Step 3: Semantic Analysis.
             SemanticAnalyzer semantic = new SemanticAnalyzer();
+
             List<String> errors = semantic.analyze(ast);
 
-            List<Symbol> symbols =
+            List<symboltable.Symbol> symbols =
                 semantic.getSymbolTable().getAllSymbols();
 
+            // Step 4: Intermediate Code Generation.
             List<String> tacInstructions = List.of();
 
             if (errors.isEmpty()) {
@@ -76,12 +111,16 @@ public class Main {
             }
 
             String response = buildResponse(
-                tokens, ast, symbols, errors, tacInstructions
+                tokens,
+                ast,
+                symbols,
+                errors,
+                tacInstructions
             );
 
             sendResponse(exchange, 200, response);
 
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
 
             String message = e.getMessage() == null
                 ? "Unknown compiler error."
@@ -92,18 +131,58 @@ public class Main {
                 + jsonString(message) + "]}";
 
             sendResponse(exchange, 200, response);
-
-        } catch (Exception e) {
-
-            sendResponse(exchange, 500,
-                "{\"success\":false,\"errors\":[\"Internal server error.\"]}");
         }
     }
 
+    // JFlex Tokenization
+    private static List<TokenInfo> tokenize(String source)
+            throws Exception {
+
+        List<TokenInfo> tokens = new ArrayList<>();
+
+        JavaLexer lexer = new JavaLexer(
+            new StringReader(source)
+        );
+
+        Symbol token;
+
+        while (true) {
+
+            token = lexer.next_token();
+
+            if (token.sym == sym.EOF) {
+                break;
+            }
+
+            String tokenName = "UNKNOWN";
+
+            if (token.sym >= 0 &&
+                token.sym < sym.terminalNames.length) {
+
+                tokenName = sym.terminalNames[token.sym];
+            }
+
+            String lexeme = token.value == null
+                ? ""
+                : token.value.toString();
+
+            int line = token.left + 1;
+
+            tokens.add(new TokenInfo(
+                tokenName,
+                lexeme,
+                line
+            ));
+        }
+
+        return tokens;
+    }
+
+    // Build JSON Response
     private static String buildResponse(
-            List<Token> tokens,
+            List<TokenInfo> tokens,
             ASTNode ast,
-            List<Symbol> symbols,
+            List<symboltable.Symbol> symbols,
             List<String> errors,
             List<String> tac) {
 
@@ -114,31 +193,44 @@ public class Main {
             .append(",\"tokens\":[");
 
         for (int i = 0; i < tokens.size(); i++) {
-            Token token = tokens.get(i);
 
-            if (i > 0) json.append(",");
+            TokenInfo token = tokens.get(i);
+
+            if (i > 0) {
+                json.append(",");
+            }
 
             json.append("{")
-                .append("\"type\":").append(jsonString(token.getType().toString()))
-                .append(",\"lexeme\":").append(jsonString(token.getLexeme()))
-                .append(",\"line\":").append(token.getLine())
+                .append("\"type\":")
+                .append(jsonString(token.type))
+                .append(",\"lexeme\":")
+                .append(jsonString(token.lexeme))
+                .append(",\"line\":")
+                .append(token.line)
                 .append("}");
         }
 
         json.append("],\"ast\":");
+
         appendAst(json, ast);
 
         json.append(",\"symbols\":[");
 
         for (int i = 0; i < symbols.size(); i++) {
-            Symbol symbol = symbols.get(i);
 
-            if (i > 0) json.append(",");
+            symboltable.Symbol symbol = symbols.get(i);
+
+            if (i > 0) {
+                json.append(",");
+            }
 
             json.append("{")
-                .append("\"name\":").append(jsonString(symbol.getName()))
-                .append(",\"type\":").append(jsonString(symbol.getType()))
-                .append(",\"line\":").append(symbol.getLine())
+                .append("\"name\":")
+                .append(jsonString(symbol.getName()))
+                .append(",\"type\":")
+                .append(jsonString(symbol.getType()))
+                .append(",\"line\":")
+                .append(symbol.getLine())
                 .append("}");
         }
 
@@ -153,55 +245,102 @@ public class Main {
         return json.toString();
     }
 
-    private static void appendAst(StringBuilder json, ASTNode node) {
+    // Convert AST into JSON
+    private static void appendAst(
+            StringBuilder json,
+            ASTNode node) {
+
+        if (node == null) {
+            json.append("null");
+            return;
+        }
 
         json.append("{")
-            .append("\"type\":").append(jsonString(node.getType()))
+            .append("\"type\":")
+            .append(jsonString(node.getType()))
             .append(",\"value\":")
             .append(node.getValue() == null
-                ? "null" : jsonString(node.getValue()))
-            .append(",\"line\":").append(node.getLine())
+                ? "null"
+                : jsonString(node.getValue()))
+            .append(",\"line\":")
+            .append(node.getLine())
             .append(",\"children\":[");
 
         List<ASTNode> children = node.getChildren();
 
         for (int i = 0; i < children.size(); i++) {
-            if (i > 0) json.append(",");
+
+            if (i > 0) {
+                json.append(",");
+            }
+
             appendAst(json, children.get(i));
         }
 
         json.append("]}");
     }
 
+    // Convert String List into JSON
     private static void appendStringList(
-            StringBuilder json, List<String> values) {
+            StringBuilder json,
+            List<String> values) {
 
         json.append("[");
 
         for (int i = 0; i < values.size(); i++) {
-            if (i > 0) json.append(",");
+
+            if (i > 0) {
+                json.append(",");
+            }
+
             json.append(jsonString(values.get(i)));
         }
 
         json.append("]");
     }
 
+    // Escape JSON Strings
     private static String jsonString(String value) {
 
         StringBuilder result = new StringBuilder("\"");
 
         for (char c : value.toCharArray()) {
+
             switch (c) {
-                case '"': result.append("\\\""); break;
-                case '\\': result.append("\\\\"); break;
-                case '\n': result.append("\\n"); break;
-                case '\r': result.append("\\r"); break;
-                case '\t': result.append("\\t"); break;
-                case '\b': result.append("\\b"); break;
-                case '\f': result.append("\\f"); break;
+
+                case '"':
+                    result.append("\\\"");
+                    break;
+
+                case '\\':
+                    result.append("\\\\");
+                    break;
+
+                case '\n':
+                    result.append("\\n");
+                    break;
+
+                case '\r':
+                    result.append("\\r");
+                    break;
+
+                case '\t':
+                    result.append("\\t");
+                    break;
+
+                case '\b':
+                    result.append("\\b");
+                    break;
+
+                case '\f':
+                    result.append("\\f");
+                    break;
+
                 default:
                     if (c < 32) {
-                        result.append(String.format("\\u%04x", (int) c));
+                        result.append(
+                            String.format("\\u%04x", (int) c)
+                        );
                     } else {
                         result.append(c);
                     }
@@ -211,24 +350,32 @@ public class Main {
         return result.append("\"").toString();
     }
 
+    // Extract source code from JSON request
     private static String extractSource(String body) {
 
         String key = "\"source\"";
+
         int keyIndex = body.indexOf(key);
 
         if (keyIndex < 0) {
             throw new RuntimeException("Missing source field.");
         }
 
-        int index = body.indexOf(':', keyIndex + key.length()) + 1;
+        int index = body.indexOf(
+            ':',
+            keyIndex + key.length()
+        ) + 1;
 
         while (index < body.length() &&
                 Character.isWhitespace(body.charAt(index))) {
             index++;
         }
 
-        if (index >= body.length() || body.charAt(index) != '"') {
-            throw new RuntimeException("Source must be a string.");
+        if (index >= body.length() ||
+                body.charAt(index) != '"') {
+            throw new RuntimeException(
+                "Source must be a string."
+            );
         }
 
         index++;
@@ -245,32 +392,66 @@ public class Main {
 
             if (c == '\\') {
 
-                if (index >= body.length()) break;
+                if (index >= body.length()) {
+                    break;
+                }
 
                 char escaped = body.charAt(index++);
 
                 switch (escaped) {
-                    case 'n': source.append('\n'); break;
-                    case 'r': source.append('\r'); break;
-                    case 't': source.append('\t'); break;
-                    case 'b': source.append('\b'); break;
-                    case 'f': source.append('\f'); break;
-                    case '"': source.append('"'); break;
-                    case '\\': source.append('\\'); break;
-                    case '/': source.append('/'); break;
+
+                    case 'n':
+                        source.append('\n');
+                        break;
+
+                    case 'r':
+                        source.append('\r');
+                        break;
+
+                    case 't':
+                        source.append('\t');
+                        break;
+
+                    case 'b':
+                        source.append('\b');
+                        break;
+
+                    case 'f':
+                        source.append('\f');
+                        break;
+
+                    case '"':
+                        source.append('"');
+                        break;
+
+                    case '\\':
+                        source.append('\\');
+                        break;
+
+                    case '/':
+                        source.append('/');
+                        break;
 
                     case 'u':
+
                         if (index + 4 > body.length()) {
-                            throw new RuntimeException("Invalid Unicode escape.");
+                            throw new RuntimeException(
+                                "Invalid Unicode escape."
+                            );
                         }
+
                         source.append((char) Integer.parseInt(
-                            body.substring(index, index + 4), 16
+                            body.substring(index, index + 4),
+                            16
                         ));
+
                         index += 4;
                         break;
 
                     default:
-                        throw new RuntimeException("Invalid JSON escape.");
+                        throw new RuntimeException(
+                            "Invalid JSON escape."
+                        );
                 }
 
             } else {
@@ -281,32 +462,44 @@ public class Main {
         throw new RuntimeException("Invalid source JSON.");
     }
 
-    private static void addCorsHeaders(HttpExchange exchange) {
+    // CORS Headers
+    private static void addCorsHeaders(
+            HttpExchange exchange) {
 
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Origin", "*"
         );
 
         exchange.getResponseHeaders().set(
-            "Access-Control-Allow-Methods", "POST, OPTIONS"
+            "Access-Control-Allow-Methods",
+            "POST, OPTIONS"
         );
 
         exchange.getResponseHeaders().set(
-            "Access-Control-Allow-Headers", "Content-Type"
+            "Access-Control-Allow-Headers",
+            "Content-Type"
         );
     }
 
+    // Send HTTP Response
     private static void sendResponse(
-            HttpExchange exchange, int status, String response)
-            throws IOException {
+            HttpExchange exchange,
+            int status,
+            String response) throws IOException {
 
-        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-
-        exchange.getResponseHeaders().set(
-            "Content-Type", "application/json; charset=UTF-8"
+        byte[] bytes = response.getBytes(
+            StandardCharsets.UTF_8
         );
 
-        exchange.sendResponseHeaders(status, bytes.length);
+        exchange.getResponseHeaders().set(
+            "Content-Type",
+            "application/json; charset=UTF-8"
+        );
+
+        exchange.sendResponseHeaders(
+            status,
+            bytes.length
+        );
 
         try (var output = exchange.getResponseBody()) {
             output.write(bytes);

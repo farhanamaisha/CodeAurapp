@@ -1,0 +1,14 @@
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/Main.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/ast/ASTNode.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/ast/ASTPrinter.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/errors/CompilerError.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/intermediate/TACGenerator.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/lexer/Lexer.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/lexer/Token.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/parser/Parser.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/semantic/SemanticAnalyzer.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/symboltable/Symbol.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/src/symboltable/SymbolTable.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/target/generated-sources/cup/parser/JavaParser.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/target/generated-sources/cup/parser/sym.java
+/workspaces/CodeAurapp/compiler-construction/backend/java/target/generated-sources/jflex/lexer/JavaLexer.java
