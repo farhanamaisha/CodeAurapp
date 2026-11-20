@@ -1,12 +1,22 @@
 #include <iostream>
 #include <string>
 
+using namespace std;
+
 int main() {
-    std::string fullName;
+    string name;
+    int age;
 
-    std::cout << "Enter your full name: ";
-    std::getline(std::cin, fullName); // Reads the entire line until Enter is pressed
+    // Prompt and read text (single word)
+    cout << "Enter your first name: ";
+    cin >> name;
 
-    std::cout << "Welcome, " << fullName << "!\n";
+    // Prompt and read a number
+    cout << "Enter your age: ";
+    cin >> age;
+
+    // Display the output
+    cout << "Hello, " << name << "! You are " << age << " years old." << endl;
+
     return 0;
 }

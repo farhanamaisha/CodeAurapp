@@ -101,6 +101,22 @@ std::string Parser::parseTypeName() {
 
 std::shared_ptr<ASTNode> Parser::parseProgram() {
     auto program = makeNode("PROGRAM");
+
+    while (check(TokenType::IDENTIFIER) && peek().lexeme == "using") {
+        const Token directive = advance();
+        if (!check(TokenType::IDENTIFIER) || peek().lexeme != "namespace") {
+            errors_.push_back("Line " + std::to_string(directive.line) + ": expected 'namespace' after 'using'");
+            break;
+        }
+        advance();
+        if (!check(TokenType::IDENTIFIER) || peek().lexeme != "std") {
+            errors_.push_back("Line " + std::to_string(peek().line) + ": only 'using namespace std' is supported");
+            break;
+        }
+        advance();
+        consume(TokenType::SEMICOLON, "expected ';' after using directive");
+    }
+
     program->addChild(parseMainFunction());
     return program;
 }
@@ -166,18 +182,27 @@ std::shared_ptr<ASTNode> Parser::parseDeclaration() {
 
 std::shared_ptr<ASTNode> Parser::parseDeclaration(bool consumeSemicolon) {
     std::string type = parseTypeName();
-    auto identifier = consume(TokenType::IDENTIFIER, "expected identifier in declaration");
-    auto declaration = makeNode("DECLARATION", type, identifier.line);
-    declaration->addChild(makeNode("IDENTIFIER", identifier.lexeme, identifier.line));
+    auto declarations = makeNode("DECLARATION_LIST", type, peek().line);
 
-    if (match({TokenType::ASSIGN})) {
-        declaration->addChild(parseExpression());
-    }
+    do {
+        auto identifier = consume(TokenType::IDENTIFIER, "expected identifier in declaration");
+        auto declaration = makeNode("DECLARATION", type, identifier.line);
+        declaration->addChild(makeNode("IDENTIFIER", identifier.lexeme, identifier.line));
+
+        if (match({TokenType::ASSIGN})) {
+            declaration->addChild(parseExpression());
+        }
+        declarations->addChild(declaration);
+    } while (match({TokenType::COMMA}));
 
     if (consumeSemicolon) {
         consume(TokenType::SEMICOLON, "expected ';' after declaration");
     }
-    return declaration;
+
+    if (declarations->getChildren().size() == 1) {
+        return declarations->getChildren().front();
+    }
+    return declarations;
 }
 
 std::shared_ptr<ASTNode> Parser::parseAssignment() {
