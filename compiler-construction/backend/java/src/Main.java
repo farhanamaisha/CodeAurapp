@@ -1,79 +1,705 @@
 
-import lexer.Lexer;
-import lexer.Token;
-import parser.Parser;
-import ast.ASTNode;
-import ast.ASTPrinter;
-import semantic.SemanticAnalyzer;
-import symboltable.Symbol;
-import intermediate.TACGenerator;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
+import lexer.JavaLexer;
+import parser.JavaParser;
+import parser.sym;
+import java_cup.runtime.Symbol;
+
+import ast.ASTNode;
+import semantic.SemanticAnalyzer;
+import intermediate.TACGenerator;
+import runtime.ProgramExecutor;
+
+import java.io.IOException;
+import java.io.StringReader;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class Main {
 
-    public static void main(String[] args) {
+    private static class TokenInfo {
+        String type;
+        String lexeme;
+        int line;
 
-        String source = """
-            int age = 20;
-            int total = 0;
+        TokenInfo(String type, String lexeme, int line) {
+            this.type = type;
+            this.lexeme = lexeme;
+            this.line = line;
+        }
+    }
 
-            if (age > 18) {
-                print(age);
-            }
+    private static class ProcessResult {
+        int exitCode;
+        String stdout;
+        String stderr;
 
-            for (int i = 0; i < 5; i = i + 1) {
-                total = total + i;
-            }
+        ProcessResult(int exitCode, String stdout, String stderr) {
+            this.exitCode = exitCode;
+            this.stdout = stdout;
+            this.stderr = stderr;
+        }
+    }
 
-            print(total);
-            """;
+    public static void main(String[] args) throws IOException {
+        HttpServer server = HttpServer.create(
+            new InetSocketAddress("0.0.0.0", 8080), 0
+        );
+
+        server.createContext("/api/compile", Main::handleCompile);
+        server.start();
+
+        System.out.println("Java Compiler API running on port 8080");
+    }
+
+    private static void handleCompile(HttpExchange exchange)
+            throws IOException {
+
+        addCorsHeaders(exchange);
+
+        if (exchange.getRequestMethod().equalsIgnoreCase("OPTIONS")) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        if (!exchange.getRequestMethod().equalsIgnoreCase("POST")) {
+            sendResponse(exchange, 405,
+                "{\"success\":false,\"errors\":[\"Method not allowed\"]}");
+            return;
+        }
 
         try {
-            // 1. Lexical Analysis
-            Lexer lexer = new Lexer(source);
-            List<Token> tokens = lexer.tokenize();
+            String body = new String(
+                exchange.getRequestBody().readAllBytes(),
+                StandardCharsets.UTF_8
+            );
 
-            System.out.println("\\n===== TOKENS =====");
-            for (Token token : tokens) {
-                System.out.println(token);
+            String source = extractJsonString(body, "source");
+            String input = extractJsonString(body, "input");
+            String language = extractJsonString(body, "language");
+            if (language == null) language = "Java";
+
+            if (source == null || source.trim().isEmpty()) {
+                throw new RuntimeException(
+                    "Please enter " + language + " source code."
+                );
             }
 
-            // 2. Syntax Analysis
-            Parser parser = new Parser(tokens);
-            ASTNode ast = parser.parse();
-
-            System.out.println("\\n===== AST =====");
-            ASTPrinter.print(ast);
-
-            // 3. Semantic Analysis
-            SemanticAnalyzer semantic = new SemanticAnalyzer();
-            List<String> errors = semantic.analyze(ast);
-
-            System.out.println("\\n===== SEMANTIC ANALYSIS =====");
-
-            if (errors.isEmpty()) {
-                System.out.println("No semantic errors.");
-            } else {
-                errors.forEach(System.out::println);
+            if (!language.equalsIgnoreCase("Java")) {
+                String externalResponse =
+                    compileExternalLanguage(language, source, input);
+                sendResponse(exchange, 200, externalResponse);
                 return;
             }
 
-            // 4. Symbol Table
-            System.out.println("\\n===== SYMBOL TABLE =====");
-            for (Symbol symbol : semantic.getSymbolTable().getAllSymbols()) {
-                System.out.println(symbol);
+            List<TokenInfo> tokens = tokenize(source);
+
+            JavaLexer lexer = new JavaLexer(new StringReader(source));
+            JavaParser parser = new JavaParser(lexer);
+
+            Symbol parsed = parser.parse();
+            ASTNode ast = (ASTNode) parsed.value;
+
+            if (ast == null) {
+                throw new RuntimeException(
+                    "Syntax Error: Parser did not generate an AST."
+                );
             }
 
-            // 5. Intermediate Code Generation
-            TACGenerator tac = new TACGenerator();
-            List<String> instructions = tac.generate(ast);
+            SemanticAnalyzer semantic = new SemanticAnalyzer();
+            List<String> errors = semantic.analyze(ast);
 
-            System.out.println("\\n===== THREE ADDRESS CODE =====");
-            instructions.forEach(System.out::println);
+            List<symboltable.Symbol> symbols =
+                semantic.getSymbolTable().getAllSymbols();
 
-        } catch (RuntimeException e) {
-            System.out.println("Compiler Error: " + e.getMessage());
+            List<String> tacInstructions = List.of();
+            List<String> programOutput = List.of();
+            List<String> runtimeErrors = new ArrayList<>();
+
+            if (errors.isEmpty()) {
+                TACGenerator tac = new TACGenerator();
+                tacInstructions = tac.generate(ast);
+
+                try {
+                    ProgramExecutor executor = new ProgramExecutor();
+                    programOutput = executor.execute(ast, input);
+                } catch (RuntimeException e) {
+                    runtimeErrors.add(
+                        e.getMessage() == null
+                            ? "Runtime Error: Program execution failed."
+                            : e.getMessage()
+                    );
+                }
+            }
+
+            String response = buildResponse(
+                tokens,
+                ast,
+                symbols,
+                errors,
+                tacInstructions,
+                programOutput,
+                runtimeErrors
+            );
+
+            sendResponse(exchange, 200, response);
+
+        } catch (Exception e) {
+            String message = e.getMessage() == null
+                ? "Internal Compiler Error: Unknown error."
+                : e.getMessage();
+
+            String category = classifyError(message);
+
+            String response =
+                "{\"success\":false,"
+                + "\"errorType\":" + jsonString(category) + ","
+                + "\"errors\":[" + jsonString(message) + "],"
+                + "\"tokens\":[],\"ast\":null,\"symbols\":[],"
+                + "\"tac\":[],\"programOutput\":[],"
+                + "\"runtimeErrors\":[]}";
+
+            sendResponse(exchange, 200, response);
+        }
+    }
+
+    private static String compileExternalLanguage(
+            String language, String source, String input) throws IOException {
+
+        Path root = findRepositoryRoot();
+        Path tempSource = Files.createTempFile(
+            "compiler-" + language.toLowerCase(Locale.ROOT),
+            language.equalsIgnoreCase("C++") ? ".cpp" : ".c"
+        );
+        Files.writeString(tempSource, source, StandardCharsets.UTF_8);
+
+        try {
+            if (language.equalsIgnoreCase("C")) {
+                Path cDirectory = root.resolve("compiler-construction/backend/c");
+                runProcess(List.of("make", "-C", cDirectory.toString()),
+                           "", cDirectory);
+                ProcessResult result = runProcess(
+                    List.of(cDirectory.resolve("c-compiler").toString(),
+                             "--run", tempSource.toString()),
+                    input,
+                    cDirectory
+                );
+                return buildCResponse(result);
+            }
+
+            if (language.equalsIgnoreCase("C++")) {
+                Path cppDirectory =
+                    root.resolve("compiler-construction/backend/cpp");
+                Path binary = cppDirectory.resolve("build/cpp_compiler");
+                if (!Files.isExecutable(binary)) {
+                    runProcess(List.of(
+                        "cmake", "-S", cppDirectory.toString(),
+                        "-B", cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                    runProcess(List.of(
+                        "cmake", "--build",
+                        cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                }
+                ProcessResult result = runProcess(
+                    List.of(binary.toString(), tempSource.toString()),
+                    input,
+                    cppDirectory
+                );
+                if (result.exitCode == 0 ||
+                    result.stdout.trim().startsWith("{")) {
+                    return result.stdout;
+                }
+                return "{\"success\":false,\"errors\":["
+                    + jsonString(result.stderr.isBlank()
+                        ? "C++ compilation failed." : result.stderr.trim())
+                    + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+                    + "\"tac\":[],\"optimized_tac\":[],\"code\":[],"
+                    + "\"programOutput\":[],\"runtimeErrors\":[]}";
+            }
+        } finally {
+            Files.deleteIfExists(tempSource);
+        }
+
+        return "{\"success\":false,\"errors\":["
+            + jsonString("Unsupported language: " + language)
+            + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+            + "\"tac\":[],\"programOutput\":[],\"runtimeErrors\":[]}";
+    }
+
+    private static String buildCResponse(ProcessResult result) {
+        String stdout = result.stdout;
+        boolean successful = result.exitCode == 0
+            && stdout.contains("Status: compiled and executed successfully");
+
+        String tokenSection = extractSection(
+            stdout, "=== 1. LEXICAL ANALYSIS: TOKENS ===",
+            "\n=== 2.");
+        String astSection = extractSection(
+            stdout, "=== 2. SYNTAX ANALYSIS: AST ===",
+            "\n=== 3.");
+        String symbolSection = extractSection(
+            stdout, "=== 3. SEMANTIC ANALYSIS: SYMBOLS ===",
+            "\n=== 4.");
+        String tacSection = extractSection(
+            stdout, "=== 5. INTERMEDIATE CODE GENERATION: TAC ===",
+            "\n=== 6.");
+        String diagnosticSection = extractSection(
+            stdout, "=== DIAGNOSTICS ===", "\n=== 6.");
+
+        List<String> errors = new ArrayList<>();
+        if (!diagnosticSection.isEmpty()) {
+            for (String line : diagnosticSection.split("\\R")) {
+                if (!line.trim().isEmpty()) errors.add(line.trim());
+            }
+        } else if (result.stderr != null && !result.stderr.trim().isEmpty()
+                   && result.exitCode != 0) {
+            errors.add(result.stderr.trim());
+        }
+
+        StringBuilder output = new StringBuilder();
+        output.append("{\"success\":").append(successful).append(",");
+        output.append("\"tokens\":").append(parseCTokens(tokenSection)).append(",");
+        output.append("\"ast\":").append(astSection.isEmpty()
+            ? "null" : jsonString(astSection.trim())).append(",");
+        output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
+        output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
+        output.append("\"optimized_tac\":[],");
+        output.append("\"code\":[],");
+        output.append("\"errors\":").append(stringListJson(errors)).append(",");
+        output.append("\"programOutput\":").append(parseCProgramOutput(stdout)).append(",");
+        output.append("\"runtimeErrors\":[]}");
+        return output.toString();
+    }
+
+    private static String extractSection(
+            String text, String startMarker, String endMarker) {
+        int start = text.indexOf(startMarker);
+        if (start < 0) return "";
+        start += startMarker.length();
+        int end = text.indexOf(endMarker, start);
+        if (end < 0) end = text.length();
+        return text.substring(start, end).trim();
+    }
+
+    private static String parseCTokens(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.split("\\t", -1);
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"type\":").append(jsonString(columns[0].trim()))
+                    .append(",\"lexeme\":").append(jsonString(columns[1].trim()))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(
+                        columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCSymbols(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.trim().split("\\s+");
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"name\":").append(jsonString(columns[0]))
+                    .append(",\"type\":").append(jsonString(columns[1]))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCTac(String section) {
+        List<String> lines = new ArrayList<>();
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String parseCProgramOutput(String stdout) {
+        int start = stdout.indexOf("Program output:");
+        if (start < 0) return "[]";
+        start += "Program output:".length();
+        int end = stdout.indexOf("Status:", start);
+        if (end < 0) end = stdout.length();
+        String text = stdout.substring(start, end).trim();
+        List<String> lines = new ArrayList<>();
+        if (!text.isEmpty()) {
+            for (String line : text.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String stringListJson(List<String> values) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) json.append(",");
+            json.append(jsonString(values.get(i)));
+        }
+        return json.append("]").toString();
+    }
+
+    private static Path findRepositoryRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve("compiler-construction/backend/c"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return Path.of("").toAbsolutePath();
+    }
+
+    private static ProcessResult runProcess(
+            List<String> command, String input, Path workingDirectory)
+            throws IOException {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.directory(workingDirectory.toFile());
+        builder.redirectErrorStream(false);
+        Process process = builder.start();
+        if (input != null && !input.isEmpty()) {
+            try (var stream = process.getOutputStream()) {
+                stream.write(input.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+        } else {
+            process.getOutputStream().close();
+        }
+        String stdout;
+        String stderr;
+        try (var out = process.getInputStream()) {
+            stdout = new String(out.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        try (var err = process.getErrorStream()) {
+            stderr = new String(err.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int exitCode;
+        try {
+            exitCode = process.waitFor();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ProcessResult(1, "", "Process interrupted.");
+        }
+        return new ProcessResult(exitCode, stdout, stderr);
+    }
+
+    private static String classifyError(String message) {
+        String lower = message.toLowerCase();
+
+        if (lower.contains("lexical") || lower.contains("unexpected character")) {
+            return "Lexical Error";
+        }
+        if (lower.contains("syntax") || lower.contains("parse")
+                || lower.contains("unexpected token")
+                || lower.contains("can't recover")) {
+            return "Syntax Error";
+        }
+        if (lower.contains("semantic") || lower.contains("undeclared")
+                || lower.contains("already declared")
+                || lower.contains("type mismatch")) {
+            return "Semantic Error";
+        }
+        if (lower.contains("runtime") || lower.contains("division by zero")
+                || lower.contains("no input available")
+                || lower.contains("invalid input")) {
+            return "Runtime Error";
+        }
+        return "Compiler Error";
+    }
+
+    private static List<TokenInfo> tokenize(String source)
+            throws Exception {
+
+        List<TokenInfo> tokens = new ArrayList<>();
+        JavaLexer lexer = new JavaLexer(new StringReader(source));
+
+        while (true) {
+            Symbol token = lexer.next_token();
+
+            if (token.sym == sym.EOF) break;
+
+            String tokenName = "UNKNOWN";
+
+            if (token.sym >= 0 && token.sym < sym.terminalNames.length) {
+                tokenName = sym.terminalNames[token.sym];
+            }
+
+            String lexeme = token.value == null
+                ? ""
+                : token.value.toString();
+
+            tokens.add(new TokenInfo(
+                tokenName,
+                lexeme,
+                token.left + 1
+            ));
+        }
+
+        return tokens;
+    }
+
+    private static String buildResponse(
+            List<TokenInfo> tokens,
+            ASTNode ast,
+            List<symboltable.Symbol> symbols,
+            List<String> errors,
+            List<String> tac,
+            List<String> programOutput,
+            List<String> runtimeErrors) {
+
+        StringBuilder json = new StringBuilder();
+
+        json.append("{\"success\":")
+            .append(errors.isEmpty() && runtimeErrors.isEmpty())
+            .append(",\"tokens\":[");
+
+        for (int i = 0; i < tokens.size(); i++) {
+            TokenInfo token = tokens.get(i);
+
+            if (i > 0) json.append(",");
+
+            json.append("{")
+                .append("\"type\":").append(jsonString(token.type))
+                .append(",\"lexeme\":").append(jsonString(token.lexeme))
+                .append(",\"line\":").append(token.line)
+                .append("}");
+        }
+
+        json.append("],\"ast\":");
+        appendAst(json, ast);
+
+        json.append(",\"symbols\":[");
+
+        for (int i = 0; i < symbols.size(); i++) {
+            symboltable.Symbol symbol = symbols.get(i);
+
+            if (i > 0) json.append(",");
+
+            json.append("{")
+                .append("\"name\":").append(jsonString(symbol.getName()))
+                .append(",\"type\":").append(jsonString(symbol.getType()))
+                .append(",\"line\":").append(symbol.getLine())
+                .append("}");
+        }
+
+        json.append("],\"errors\":");
+        appendStringList(json, errors);
+
+        json.append(",\"tac\":");
+        appendStringList(json, tac);
+
+        json.append(",\"programOutput\":");
+        appendStringList(json, programOutput);
+
+        json.append(",\"runtimeErrors\":");
+        appendStringList(json, runtimeErrors);
+
+        json.append("}");
+
+        return json.toString();
+    }
+
+    private static void appendAst(StringBuilder json, ASTNode node) {
+        if (node == null) {
+            json.append("null");
+            return;
+        }
+
+        json.append("{")
+            .append("\"type\":").append(jsonString(node.getType()))
+            .append(",\"value\":")
+            .append(node.getValue() == null
+                ? "null" : jsonString(node.getValue()))
+            .append(",\"line\":").append(node.getLine())
+            .append(",\"children\":[");
+
+        List<ASTNode> children = node.getChildren();
+
+        for (int i = 0; i < children.size(); i++) {
+            if (i > 0) json.append(",");
+            appendAst(json, children.get(i));
+        }
+
+        json.append("]}");
+    }
+
+    private static void appendStringList(
+            StringBuilder json, List<String> values) {
+
+        json.append("[");
+
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) json.append(",");
+            json.append(jsonString(values.get(i)));
+        }
+
+        json.append("]");
+    }
+
+    private static String jsonString(String value) {
+        if (value == null) return "null";
+
+        StringBuilder result = new StringBuilder("\"");
+
+        for (char c : value.toCharArray()) {
+            switch (c) {
+                case '"': result.append("\\\""); break;
+                case '\\': result.append("\\\\"); break;
+                case '\n': result.append("\\n"); break;
+                case '\r': result.append("\\r"); break;
+                case '\t': result.append("\\t"); break;
+                case '\b': result.append("\\b"); break;
+                case '\f': result.append("\\f"); break;
+
+                default:
+                    if (c < 32) {
+                        result.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        result.append(c);
+                    }
+            }
+        }
+
+        return result.append("\"").toString();
+    }
+
+    private static String extractJsonString(String body, String field) {
+        String key = "\"" + field + "\"";
+        int keyIndex = body.indexOf(key);
+
+        if (keyIndex < 0) {
+            return field.equals("input") ? "" : null;
+        }
+
+        int index = body.indexOf(':', keyIndex + key.length()) + 1;
+
+        while (index < body.length()
+                && Character.isWhitespace(body.charAt(index))) {
+            index++;
+        }
+
+        if (index >= body.length() || body.charAt(index) != '"') {
+            throw new RuntimeException(
+                "Invalid request: " + field + " must be a string."
+            );
+        }
+
+        index++;
+        StringBuilder value = new StringBuilder();
+
+        while (index < body.length()) {
+            char c = body.charAt(index++);
+
+            if (c == '"') return value.toString();
+
+            if (c == '\\') {
+                if (index >= body.length()) break;
+
+                char escaped = body.charAt(index++);
+
+                switch (escaped) {
+                    case 'n': value.append('\n'); break;
+                    case 'r': value.append('\r'); break;
+                    case 't': value.append('\t'); break;
+                    case 'b': value.append('\b'); break;
+                    case 'f': value.append('\f'); break;
+                    case '"': value.append('"'); break;
+                    case '\\': value.append('\\'); break;
+                    case '/': value.append('/'); break;
+
+                    case 'u':
+                        if (index + 4 > body.length()) {
+                            throw new RuntimeException(
+                                "Invalid Unicode escape in request."
+                            );
+                        }
+
+                        try {
+                            value.append((char) Integer.parseInt(
+                                body.substring(index, index + 4), 16
+                            ));
+                        } catch (NumberFormatException e) {
+                            throw new RuntimeException(
+                                "Invalid Unicode escape in request."
+                            );
+                        }
+
+                        index += 4;
+                        break;
+
+                    default:
+                        throw new RuntimeException(
+                            "Invalid JSON escape in request."
+                        );
+                }
+            } else {
+                value.append(c);
+            }
+        }
+
+        throw new RuntimeException(
+            "Invalid JSON string for field: " + field
+        );
+    }
+
+    private static void addCorsHeaders(HttpExchange exchange) {
+        exchange.getResponseHeaders().set(
+            "Access-Control-Allow-Origin", "*"
+        );
+        exchange.getResponseHeaders().set(
+            "Access-Control-Allow-Methods", "POST, OPTIONS"
+        );
+        exchange.getResponseHeaders().set(
+            "Access-Control-Allow-Headers", "Content-Type"
+        );
+    }
+
+    private static void sendResponse(
+            HttpExchange exchange, int status, String response)
+            throws IOException {
+
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+
+        exchange.getResponseHeaders().set(
+            "Content-Type", "application/json; charset=UTF-8"
+        );
+
+        exchange.sendResponseHeaders(status, bytes.length);
+
+        try (var output = exchange.getResponseBody()) {
+            output.write(bytes);
         }
     }
 }

@@ -1,0 +1,27 @@
+
+# Java compiled files
+*.class
+
+# Maven generated files
+**/target/
+
+# Node dependencies
+**/node_modules/
+
+# Build outputs
+**/dist/
+
+# Native C compiler build output
+backend/c/c-compiler
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
