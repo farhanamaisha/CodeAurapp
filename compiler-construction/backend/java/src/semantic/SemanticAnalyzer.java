@@ -15,10 +15,7 @@ public class SemanticAnalyzer {
 
     public List<String> analyze(ASTNode root) {
         errors.clear();
-
-        // Reset the symbol table for each compilation.
         symbolTable = new SymbolTable();
-
         analyzeNode(root);
         return errors;
     }
@@ -28,6 +25,8 @@ public class SemanticAnalyzer {
     }
 
     private void analyzeNode(ASTNode node) {
+
+        if (node == null) return;
 
         switch (node.getType()) {
 
@@ -59,6 +58,13 @@ public class SemanticAnalyzer {
                 checkAssignment(node);
                 break;
 
+            case "PRINT":
+                // IMPORTANT: Validate every expression being printed.
+                for (ASTNode child : node.getChildren()) {
+                    checkExpression(child);
+                }
+                break;
+
             case "IF":
             case "WHILE":
                 analyzeCondition(node);
@@ -68,18 +74,34 @@ public class SemanticAnalyzer {
                 analyzeFor(node);
                 break;
 
+            case "EMPTY":
+                break;
+
             default:
-                for (ASTNode child : node.getChildren()) {
-                    analyzeNode(child);
+                // Validate standalone expression nodes too.
+                if (isExpression(node)) {
+                    checkExpression(node);
+                } else {
+                    for (ASTNode child : node.getChildren()) {
+                        analyzeNode(child);
+                    }
                 }
         }
     }
 
+    private boolean isExpression(ASTNode node) {
+        String type = node.getType();
+
+        return type.equals("IDENTIFIER")
+            || type.equals("LITERAL")
+            || type.equals("BINARY")
+            || type.equals("UNARY")
+            || type.equals("INPUT");
+    }
+
     private void declareVariable(ASTNode node) {
 
-        if (node.getChildren().isEmpty()) {
-            return;
-        }
+        if (node.getChildren().isEmpty()) return;
 
         ASTNode identifier = node.getChildren().get(0);
 
@@ -121,16 +143,13 @@ public class SemanticAnalyzer {
         if (symbol == null) {
             error(node, "Undeclared variable: " + name);
 
-            if (!node.getChildren().isEmpty()) {
-                checkExpression(node.getChildren().get(0));
+            for (ASTNode child : node.getChildren()) {
+                checkExpression(child);
             }
-
             return;
         }
 
-        if (node.getChildren().isEmpty()) {
-            return;
-        }
+        if (node.getChildren().isEmpty()) return;
 
         String expressionType =
             checkExpression(node.getChildren().get(0));
@@ -175,10 +194,8 @@ public class SemanticAnalyzer {
 
         symbolTable.enterScope();
 
-        // Initialization
         analyzeNode(children.get(0));
 
-        // Condition
         if (!children.get(1).getType().equals("EMPTY")) {
 
             String conditionType =
@@ -192,18 +209,18 @@ public class SemanticAnalyzer {
             }
         }
 
-        // Update
         if (!children.get(2).getType().equals("EMPTY")) {
             analyzeNode(children.get(2));
         }
 
-        // Loop body
         analyzeNode(children.get(3));
 
         symbolTable.exitScope();
     }
 
     private String checkExpression(ASTNode node) {
+
+        if (node == null) return null;
 
         switch (node.getType()) {
 
@@ -217,18 +234,15 @@ public class SemanticAnalyzer {
 
                 if (symbol == null) {
                     error(node,
-                        "Undeclared variable: " + node.getValue());
-
+                        "Variable '" + node.getValue()
+                        + "' is not declared.");
                     return null;
                 }
 
                 return symbol.getType();
 
             case "INPUT":
-                // Scanner return types:
-                // nextInt()   -> int
-                // nextFloat() -> float
-                // nextLine()  -> String
+                // Scanner: nextInt(), nextFloat(), nextLine()
                 return node.getValue();
 
             case "UNARY":
@@ -238,37 +252,26 @@ public class SemanticAnalyzer {
                 return checkBinaryExpression(node);
 
             default:
-                String result = null;
-
-                for (ASTNode child : node.getChildren()) {
-                    result = checkExpression(child);
-                }
-
-                return result;
+                return null;
         }
     }
 
     private String checkUnaryExpression(ASTNode node) {
 
-        if (node.getChildren().isEmpty()) {
-            return null;
-        }
+        if (node.getChildren().isEmpty()) return null;
 
         String operator = node.getValue();
 
         String operandType =
             checkExpression(node.getChildren().get(0));
 
-        if (operandType == null) {
-            return null;
-        }
+        if (operandType == null) return null;
 
         if (operator.equals("!")) {
 
             if (!operandType.equals("bool")) {
                 error(node,
                     "Logical NOT requires a bool operand.");
-
                 return null;
             }
 
@@ -281,7 +284,6 @@ public class SemanticAnalyzer {
                 error(node,
                     "Unary " + operator
                     + " requires a numeric operand.");
-
                 return null;
             }
 
@@ -293,9 +295,7 @@ public class SemanticAnalyzer {
 
     private String checkBinaryExpression(ASTNode node) {
 
-        if (node.getChildren().size() < 2) {
-            return null;
-        }
+        if (node.getChildren().size() < 2) return null;
 
         String operator = node.getValue();
 
@@ -305,9 +305,7 @@ public class SemanticAnalyzer {
         String rightType =
             checkExpression(node.getChildren().get(1));
 
-        if (leftType == null || rightType == null) {
-            return null;
-        }
+        if (leftType == null || rightType == null) return null;
 
         switch (operator) {
 
@@ -317,13 +315,10 @@ public class SemanticAnalyzer {
             case "/":
             case "%":
 
-                if (!isNumeric(leftType) ||
-                    !isNumeric(rightType)) {
-
+                if (!isNumeric(leftType) || !isNumeric(rightType)) {
                     error(node,
                         "Arithmetic operator '" + operator
                         + "' requires numeric operands.");
-
                     return null;
                 }
 
@@ -333,7 +328,6 @@ public class SemanticAnalyzer {
 
                     error(node,
                         "Modulo operator requires int operands.");
-
                     return null;
                 }
 
@@ -346,13 +340,10 @@ public class SemanticAnalyzer {
             case "<=":
             case ">=":
 
-                if (!isNumeric(leftType) ||
-                    !isNumeric(rightType)) {
-
+                if (!isNumeric(leftType) || !isNumeric(rightType)) {
                     error(node,
                         "Comparison operator '" + operator
                         + "' requires numeric operands.");
-
                     return null;
                 }
 
@@ -366,7 +357,6 @@ public class SemanticAnalyzer {
 
                     error(node,
                         "Incompatible types in equality comparison.");
-
                     return null;
                 }
 
@@ -381,14 +371,12 @@ public class SemanticAnalyzer {
                     error(node,
                         "Logical operator '" + operator
                         + "' requires bool operands.");
-
                     return null;
                 }
 
                 return "bool";
 
             default:
-
                 error(node, "Unknown operator: " + operator);
                 return null;
         }
@@ -396,53 +384,38 @@ public class SemanticAnalyzer {
 
     private String getLiteralType(String value) {
 
-        if (value == null) {
-            return null;
-        }
+        if (value == null) return null;
 
         if (value.equals("true") || value.equals("false")) {
             return "bool";
         }
 
-        // String literals are enclosed in double quotes.
         if (value.length() >= 2 &&
             value.startsWith("\"") &&
             value.endsWith("\"")) {
-
             return "String";
         }
 
-        if (value.contains(".")) {
-            return "float";
-        }
+        if (value.contains(".")) return "float";
 
         return "int";
     }
 
     private boolean isNumeric(String type) {
-
         return type != null &&
             (type.equals("int") || type.equals("float"));
     }
 
     private boolean isCompatible(String target, String source) {
 
-        if (target == null || source == null) {
-            return false;
-        }
+        if (target == null || source == null) return false;
 
-        if (target.equals(source)) {
-            return true;
-        }
+        if (target.equals(source)) return true;
 
-        // Allow int values to be assigned to float variables.
         return target.equals("float") && source.equals("int");
     }
 
     private void error(ASTNode node, String message) {
-
-        errors.add(
-            "Line " + node.getLine() + ": " + message
-        );
+        errors.add("Line " + node.getLine() + ": " + message);
     }
 }
