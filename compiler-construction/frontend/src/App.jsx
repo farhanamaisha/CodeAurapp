@@ -178,6 +178,28 @@ export default function App() {
                             </pre>
                         </div>
                     )}
+
+                    {result.optimized_tac && (
+                        <div className="panel">
+                            <h3>5. Code Optimization — Optimized TAC</h3>
+                            <pre>
+                                {result.optimized_tac.length > 0
+                                    ? result.optimized_tac.join("\n")
+                                    : "No optimized TAC generated."}
+                            </pre>
+                        </div>
+                    )}
+
+                    {result.code && (
+                        <div className="panel">
+                            <h3>6. Code Generation — Pseudo-Assembly</h3>
+                            <pre>
+                                {result.code.length > 0
+                                    ? result.code.join("\n")
+                                    : "No generated code."}
+                            </pre>
+                        </div>
+                    )}
                 </section>
             )}
 

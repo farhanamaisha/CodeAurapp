@@ -67,6 +67,14 @@ void SemanticAnalyzer::analyzeNode(const std::shared_ptr<ASTNode>& node) {
         }
         return;
     }
+    if (type == "PRINT") {
+        for (const auto& child : node->getChildren()) {
+            if (child->getType() != "LITERAL" || child->getValue() != "endl") {
+                checkExpression(child);
+            }
+        }
+        return;
+    }
 
     for (const auto& child : node->getChildren()) {
         analyzeNode(child);

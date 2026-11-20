@@ -35,6 +35,8 @@ private:
     std::shared_ptr<ASTNode> parseStatement();
     std::shared_ptr<ASTNode> parseDeclaration();
     std::shared_ptr<ASTNode> parseAssignment();
+    std::shared_ptr<ASTNode> parseDeclaration(bool consumeSemicolon);
+    std::shared_ptr<ASTNode> parseAssignment(bool consumeSemicolon);
     std::shared_ptr<ASTNode> parseIfStatement();
     std::shared_ptr<ASTNode> parseWhileStatement();
     std::shared_ptr<ASTNode> parseForStatement();

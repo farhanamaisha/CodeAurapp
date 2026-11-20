@@ -13,3 +13,9 @@ file(GLOB_RECURSE CPP_SOURCES CONFIGURE_DEPENDS
 add_executable(cpp_compiler main.cpp ${CPP_SOURCES})
 
 target_include_directories(cpp_compiler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+enable_testing()
+add_test(NAME cpp_valid_sample COMMAND cpp_compiler ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample_valid.cpp)
+set_tests_properties(cpp_valid_sample PROPERTIES PASS_REGULAR_EXPRESSION "\"success\":true")
+add_test(NAME cpp_invalid_sample COMMAND cpp_compiler ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample_invalid.cpp)
+set_tests_properties(cpp_invalid_sample PROPERTIES WILL_FAIL TRUE)
