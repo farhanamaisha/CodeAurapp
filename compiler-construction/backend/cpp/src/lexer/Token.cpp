@@ -9,6 +9,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
         case TokenType::FLOAT_LITERAL: return "FLOAT_LITERAL";
         case TokenType::STRING_LITERAL: return "STRING_LITERAL";
+        case TokenType::STRING_TYPE: return "STRING_TYPE";
         case TokenType::BOOLEAN_LITERAL: return "BOOLEAN_LITERAL";
         case TokenType::INT: return "INT";
         case TokenType::FLOAT: return "FLOAT";
@@ -20,6 +21,8 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::RETURN: return "RETURN";
         case TokenType::MAIN: return "MAIN";
         case TokenType::COUT: return "COUT";
+        case TokenType::CIN: return "CIN";
+        case TokenType::GETLINE: return "GETLINE";
         case TokenType::ENDL: return "ENDL";
         case TokenType::PLUS: return "PLUS";
         case TokenType::MINUS: return "MINUS";
@@ -37,6 +40,7 @@ std::string tokenTypeToString(TokenType type) {
         case TokenType::OR: return "OR";
         case TokenType::NOT: return "NOT";
         case TokenType::SHIFT: return "SHIFT";
+        case TokenType::SCOPE: return "SCOPE";
         case TokenType::LPAREN: return "LPAREN";
         case TokenType::RPAREN: return "RPAREN";
         case TokenType::LBRACE: return "LBRACE";

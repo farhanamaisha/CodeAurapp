@@ -86,9 +86,31 @@ Token Lexer::readIdentifierOrKeyword() {
     if (value == "return") return {TokenType::RETURN, value, startLine, startColumn};
     if (value == "main") return {TokenType::MAIN, value, startLine, startColumn};
     if (value == "cout") return {TokenType::COUT, value, startLine, startColumn};
+    if (value == "cin") return {TokenType::CIN, value, startLine, startColumn};
+    if (value == "getline") return {TokenType::GETLINE, value, startLine, startColumn};
     if (value == "endl") return {TokenType::ENDL, value, startLine, startColumn};
+    if (value == "string") return {TokenType::STRING_TYPE, value, startLine, startColumn};
     if (value == "true" || value == "false") return {TokenType::BOOLEAN_LITERAL, value, startLine, startColumn};
     return {TokenType::IDENTIFIER, value, startLine, startColumn};
+}
+
+void Lexer::skipIncludeDirective() {
+    const int directiveLine = line_;
+    std::string directive;
+    while (!isAtEnd() && peek() != '\n') {
+        directive.push_back(advance());
+    }
+
+    std::istringstream input(directive);
+    std::string name;
+    std::string header;
+    std::string extra;
+    input >> name >> header;
+    if (name != "#include" ||
+        (header != "<iostream>" && header != "<string>") ||
+        (input >> extra)) {
+        errors_.push_back("Unsupported preprocessor directive at line " + std::to_string(directiveLine));
+    }
 }
 
 Token Lexer::readNumber() {
@@ -178,6 +200,16 @@ Token Lexer::readOperator() {
         advance();
         return {TokenType::SHIFT, "<<", startLine, startColumn};
     }
+    if (remaining.rfind(">>", 0) == 0) {
+        advance();
+        advance();
+        return {TokenType::SHIFT, ">>", startLine, startColumn};
+    }
+    if (remaining.rfind("::", 0) == 0) {
+        advance();
+        advance();
+        return {TokenType::SCOPE, "::", startLine, startColumn};
+    }
 
     const char op = advance();
     switch (op) {
@@ -217,6 +249,10 @@ std::vector<Token> Lexer::tokenize() {
         }
 
         char c = peek();
+        if (c == '#') {
+            skipIncludeDirective();
+            continue;
+        }
         if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
             tokens.push_back(readIdentifierOrKeyword());
             continue;

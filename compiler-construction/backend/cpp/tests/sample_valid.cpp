@@ -1,13 +1,12 @@
+#include <iostream>
+#include <string>
+
 int main() {
-    int a = 10;
-    int b = 20;
-    int sum = a + b;
+    std::string fullName;
 
-    if (sum > 10) {
-        cout << sum << endl;
-    } else {
-        cout << a << endl;
-    }
+    std::cout << "Enter your full name: ";
+    std::getline(std::cin, fullName); // Reads the entire line until Enter is pressed
 
+    std::cout << "Welcome, " << fullName << "!\n";
     return 0;
 }

@@ -56,6 +56,14 @@ std::vector<std::string> CodeGenerator::generate(const std::vector<std::string>&
             code.push_back(value == "endl" ? "  PRINTLN" : "  PRINT " + value);
             continue;
         }
+        if (line.rfind("read ", 0) == 0) {
+            code.push_back("  READ " + line.substr(5));
+            continue;
+        }
+        if (line.rfind("readline ", 0) == 0) {
+            code.push_back("  READLINE " + line.substr(9));
+            continue;
+        }
         if (line.rfind("return", 0) == 0) {
             if (line == "return") {
                 code.push_back("  RET");

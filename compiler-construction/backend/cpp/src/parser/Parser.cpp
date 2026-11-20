@@ -27,6 +27,27 @@ bool Parser::check(TokenType type) const {
     return !isAtEnd() && tokens_[index_].type == type;
 }
 
+bool Parser::isStdQualified(TokenType type) const {
+    return index_ + 2 < tokens_.size() &&
+        tokens_[index_].type == TokenType::IDENTIFIER &&
+        tokens_[index_].lexeme == "std" &&
+        tokens_[index_ + 1].type == TokenType::SCOPE &&
+        tokens_[index_ + 2].type == type;
+}
+
+bool Parser::matchStdQualifier() {
+    if (index_ + 1 >= tokens_.size() ||
+        tokens_[index_].type != TokenType::IDENTIFIER ||
+        tokens_[index_].lexeme != "std" ||
+        tokens_[index_ + 1].type != TokenType::SCOPE) {
+        return false;
+    }
+
+    advance();
+    advance();
+    return true;
+}
+
 bool Parser::match(std::initializer_list<TokenType> types) {
     for (TokenType type : types) {
         if (check(type)) {
@@ -65,9 +86,15 @@ std::shared_ptr<ASTNode> Parser::makeNode(const std::string& type, const std::st
 }
 
 std::string Parser::parseTypeName() {
+    if (matchStdQualifier()) {
+        if (match({TokenType::STRING_TYPE})) return "string";
+        errors_.push_back("Line " + std::to_string(peek().line) + ": expected 'string' after 'std::'");
+        return "unknown";
+    }
     if (match({TokenType::INT})) return "int";
     if (match({TokenType::FLOAT})) return "float";
     if (match({TokenType::BOOL})) return "bool";
+    if (match({TokenType::STRING_TYPE})) return "string";
     errors_.push_back("Line " + std::to_string(peek().line) + ": expected a type");
     return "unknown";
 }
@@ -101,7 +128,8 @@ std::shared_ptr<ASTNode> Parser::parseBlock() {
 }
 
 std::shared_ptr<ASTNode> Parser::parseStatement() {
-    if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::BOOL)) {
+    if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::BOOL) ||
+        check(TokenType::STRING_TYPE) || isStdQualified(TokenType::STRING_TYPE)) {
         return parseDeclaration();
     }
     if (check(TokenType::IDENTIFIER)) {
@@ -121,7 +149,9 @@ std::shared_ptr<ASTNode> Parser::parseStatement() {
     if (check(TokenType::IF)) return parseIfStatement();
     if (check(TokenType::WHILE)) return parseWhileStatement();
     if (check(TokenType::FOR)) return parseForStatement();
-    if (check(TokenType::COUT)) return parsePrintStatement();
+    if (check(TokenType::COUT) || isStdQualified(TokenType::COUT)) return parsePrintStatement();
+    if (check(TokenType::CIN) || isStdQualified(TokenType::CIN)) return parseInputStatement();
+    if (check(TokenType::GETLINE) || isStdQualified(TokenType::GETLINE)) return parseGetlineStatement();
     if (check(TokenType::RETURN)) return parseReturnStatement();
     if (check(TokenType::LBRACE)) return parseBlock();
 
@@ -194,7 +224,8 @@ std::shared_ptr<ASTNode> Parser::parseForStatement() {
     consume(TokenType::LPAREN, "expected '(' after for");
 
     if (!check(TokenType::SEMICOLON)) {
-        if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::BOOL)) {
+        if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::BOOL) ||
+            check(TokenType::STRING_TYPE) || isStdQualified(TokenType::STRING_TYPE)) {
             forNode->addChild(parseDeclaration(false));
         } else {
             forNode->addChild(parseAssignment(false));
@@ -223,6 +254,7 @@ std::shared_ptr<ASTNode> Parser::parseForStatement() {
 
 std::shared_ptr<ASTNode> Parser::parsePrintStatement() {
     auto printNode = makeNode("PRINT");
+    matchStdQualifier();
     consume(TokenType::COUT, "expected 'cout'");
 
     while (match({TokenType::SHIFT})) {
@@ -236,6 +268,42 @@ std::shared_ptr<ASTNode> Parser::parsePrintStatement() {
 
     consume(TokenType::SEMICOLON, "expected ';' after print statement");
     return printNode;
+}
+
+std::shared_ptr<ASTNode> Parser::parseInputStatement() {
+    auto inputNode = makeNode("INPUT");
+    matchStdQualifier();
+    consume(TokenType::CIN, "expected 'cin'");
+
+    while (match({TokenType::SHIFT})) {
+        Token identifier = consume(TokenType::IDENTIFIER, "expected variable after input operator");
+        if (!identifier.lexeme.empty()) {
+            inputNode->addChild(makeNode("IDENTIFIER", identifier.lexeme, identifier.line));
+        }
+    }
+
+    if (inputNode->getChildren().empty()) {
+        errors_.push_back("Line " + std::to_string(peek().line) + ": expected input variable");
+    }
+    consume(TokenType::SEMICOLON, "expected ';' after input statement");
+    return inputNode;
+}
+
+std::shared_ptr<ASTNode> Parser::parseGetlineStatement() {
+    auto inputNode = makeNode("INPUT_LINE");
+    matchStdQualifier();
+    consume(TokenType::GETLINE, "expected 'getline'");
+    consume(TokenType::LPAREN, "expected '(' after getline");
+    matchStdQualifier();
+    consume(TokenType::CIN, "expected 'cin' as getline source");
+    consume(TokenType::COMMA, "expected ',' after getline source");
+    Token identifier = consume(TokenType::IDENTIFIER, "expected destination variable in getline");
+    if (!identifier.lexeme.empty()) {
+        inputNode->addChild(makeNode("IDENTIFIER", identifier.lexeme, identifier.line));
+    }
+    consume(TokenType::RPAREN, "expected ')' after getline arguments");
+    consume(TokenType::SEMICOLON, "expected ';' after getline");
+    return inputNode;
 }
 
 std::shared_ptr<ASTNode> Parser::parseReturnStatement() {
