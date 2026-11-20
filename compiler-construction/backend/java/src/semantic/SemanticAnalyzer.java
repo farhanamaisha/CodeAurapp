@@ -47,6 +47,10 @@ public class SemanticAnalyzer {
                 symbolTable.exitScope();
                 break;
 
+            case "SCANNER_DECL":
+                // Scanner initialization is handled by ProgramExecutor.
+                break;
+
             case "DECLARATION":
                 declareVariable(node);
                 break;
@@ -73,7 +77,12 @@ public class SemanticAnalyzer {
 
     private void declareVariable(ASTNode node) {
 
+        if (node.getChildren().isEmpty()) {
+            return;
+        }
+
         ASTNode identifier = node.getChildren().get(0);
+
         String variableName = identifier.getValue();
         String variableType = node.getValue();
 
@@ -85,14 +94,19 @@ public class SemanticAnalyzer {
 
         if (!symbolTable.declare(symbol)) {
             error(node, "Variable already declared: " + variableName);
+            return;
         }
 
         if (node.getChildren().size() > 1) {
+
             String expressionType =
                 checkExpression(node.getChildren().get(1));
 
-            if (!isCompatible(variableType, expressionType)) {
-                error(node, "Cannot initialize " + variableType
+            if (expressionType != null &&
+                !isCompatible(variableType, expressionType)) {
+
+                error(node,
+                    "Cannot initialize " + variableType
                     + " variable '" + variableName
                     + "' with " + expressionType + " value.");
             }
@@ -106,15 +120,26 @@ public class SemanticAnalyzer {
 
         if (symbol == null) {
             error(node, "Undeclared variable: " + name);
-            checkExpression(node.getChildren().get(0));
+
+            if (!node.getChildren().isEmpty()) {
+                checkExpression(node.getChildren().get(0));
+            }
+
+            return;
+        }
+
+        if (node.getChildren().isEmpty()) {
             return;
         }
 
         String expressionType =
             checkExpression(node.getChildren().get(0));
 
-        if (!isCompatible(symbol.getType(), expressionType)) {
-            error(node, "Cannot assign " + expressionType
+        if (expressionType != null &&
+            !isCompatible(symbol.getType(), expressionType)) {
+
+            error(node,
+                "Cannot assign " + expressionType
                 + " value to " + symbol.getType()
                 + " variable '" + name + "'.");
         }
@@ -129,6 +154,7 @@ public class SemanticAnalyzer {
 
             if (conditionType != null &&
                 !conditionType.equals("bool")) {
+
                 error(node, "Condition must be of type bool.");
             }
         }
@@ -140,12 +166,19 @@ public class SemanticAnalyzer {
 
     private void analyzeFor(ASTNode node) {
 
-        symbolTable.enterScope();
-
         List<ASTNode> children = node.getChildren();
 
+        if (children.size() < 4) {
+            error(node, "Invalid for-loop structure.");
+            return;
+        }
+
+        symbolTable.enterScope();
+
+        // Initialization
         analyzeNode(children.get(0));
 
+        // Condition
         if (!children.get(1).getType().equals("EMPTY")) {
 
             String conditionType =
@@ -153,14 +186,18 @@ public class SemanticAnalyzer {
 
             if (conditionType != null &&
                 !conditionType.equals("bool")) {
-                error(node, "For loop condition must be of type bool.");
+
+                error(node,
+                    "For loop condition must be of type bool.");
             }
         }
 
+        // Update
         if (!children.get(2).getType().equals("EMPTY")) {
             analyzeNode(children.get(2));
         }
 
+        // Loop body
         analyzeNode(children.get(3));
 
         symbolTable.exitScope();
@@ -174,15 +211,25 @@ public class SemanticAnalyzer {
                 return getLiteralType(node.getValue());
 
             case "IDENTIFIER":
-                Symbol symbol = symbolTable.lookup(node.getValue());
+
+                Symbol symbol =
+                    symbolTable.lookup(node.getValue());
 
                 if (symbol == null) {
-                    error(node, "Undeclared variable: "
-                        + node.getValue());
+                    error(node,
+                        "Undeclared variable: " + node.getValue());
+
                     return null;
                 }
 
                 return symbol.getType();
+
+            case "INPUT":
+                // Scanner return types:
+                // nextInt()   -> int
+                // nextFloat() -> float
+                // nextLine()  -> String
+                return node.getValue();
 
             case "UNARY":
                 return checkUnaryExpression(node);
@@ -203,7 +250,12 @@ public class SemanticAnalyzer {
 
     private String checkUnaryExpression(ASTNode node) {
 
+        if (node.getChildren().isEmpty()) {
+            return null;
+        }
+
         String operator = node.getValue();
+
         String operandType =
             checkExpression(node.getChildren().get(0));
 
@@ -212,8 +264,11 @@ public class SemanticAnalyzer {
         }
 
         if (operator.equals("!")) {
+
             if (!operandType.equals("bool")) {
-                error(node, "Logical NOT requires a bool operand.");
+                error(node,
+                    "Logical NOT requires a bool operand.");
+
                 return null;
             }
 
@@ -221,9 +276,12 @@ public class SemanticAnalyzer {
         }
 
         if (operator.equals("-") || operator.equals("+")) {
+
             if (!isNumeric(operandType)) {
-                error(node, "Unary " + operator
+                error(node,
+                    "Unary " + operator
                     + " requires a numeric operand.");
+
                 return null;
             }
 
@@ -234,6 +292,10 @@ public class SemanticAnalyzer {
     }
 
     private String checkBinaryExpression(ASTNode node) {
+
+        if (node.getChildren().size() < 2) {
+            return null;
+        }
 
         String operator = node.getValue();
 
@@ -257,15 +319,21 @@ public class SemanticAnalyzer {
 
                 if (!isNumeric(leftType) ||
                     !isNumeric(rightType)) {
-                    error(node, "Arithmetic operator '" + operator
+
+                    error(node,
+                        "Arithmetic operator '" + operator
                         + "' requires numeric operands.");
+
                     return null;
                 }
 
                 if (operator.equals("%") &&
                     (!leftType.equals("int") ||
                      !rightType.equals("int"))) {
-                    error(node, "Modulo operator requires int operands.");
+
+                    error(node,
+                        "Modulo operator requires int operands.");
+
                     return null;
                 }
 
@@ -280,8 +348,11 @@ public class SemanticAnalyzer {
 
                 if (!isNumeric(leftType) ||
                     !isNumeric(rightType)) {
-                    error(node, "Comparison operator '" + operator
+
+                    error(node,
+                        "Comparison operator '" + operator
                         + "' requires numeric operands.");
+
                     return null;
                 }
 
@@ -292,7 +363,10 @@ public class SemanticAnalyzer {
 
                 if (!isCompatible(leftType, rightType) &&
                     !isCompatible(rightType, leftType)) {
-                    error(node, "Incompatible types in equality comparison.");
+
+                    error(node,
+                        "Incompatible types in equality comparison.");
+
                     return null;
                 }
 
@@ -303,14 +377,18 @@ public class SemanticAnalyzer {
 
                 if (!leftType.equals("bool") ||
                     !rightType.equals("bool")) {
-                    error(node, "Logical operator '" + operator
+
+                    error(node,
+                        "Logical operator '" + operator
                         + "' requires bool operands.");
+
                     return null;
                 }
 
                 return "bool";
 
             default:
+
                 error(node, "Unknown operator: " + operator);
                 return null;
         }
@@ -318,8 +396,20 @@ public class SemanticAnalyzer {
 
     private String getLiteralType(String value) {
 
+        if (value == null) {
+            return null;
+        }
+
         if (value.equals("true") || value.equals("false")) {
             return "bool";
+        }
+
+        // String literals are enclosed in double quotes.
+        if (value.length() >= 2 &&
+            value.startsWith("\"") &&
+            value.endsWith("\"")) {
+
+            return "String";
         }
 
         if (value.contains(".")) {
@@ -330,7 +420,9 @@ public class SemanticAnalyzer {
     }
 
     private boolean isNumeric(String type) {
-        return type.equals("int") || type.equals("float");
+
+        return type != null &&
+            (type.equals("int") || type.equals("float"));
     }
 
     private boolean isCompatible(String target, String source) {
@@ -348,6 +440,9 @@ public class SemanticAnalyzer {
     }
 
     private void error(ASTNode node, String message) {
-        errors.add("Line " + node.getLine() + ": " + message);
+
+        errors.add(
+            "Line " + node.getLine() + ": " + message
+        );
     }
 }
