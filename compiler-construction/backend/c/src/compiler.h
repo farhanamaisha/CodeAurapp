@@ -10,15 +10,19 @@ typedef enum {
     TOKEN_INT_LITERAL,
     TOKEN_FLOAT_LITERAL,
     TOKEN_STRING_LITERAL,
+    TOKEN_CHAR_LITERAL,
     TOKEN_BOOL_LITERAL,
     TOKEN_INT,
     TOKEN_FLOAT,
     TOKEN_BOOL,
+    TOKEN_CHAR,
+    TOKEN_VOID,
     TOKEN_IF,
     TOKEN_ELSE,
     TOKEN_WHILE,
     TOKEN_FOR,
     TOKEN_PRINTF,
+    TOKEN_RETURN,
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_PLUS,
@@ -27,6 +31,11 @@ typedef enum {
     TOKEN_SLASH,
     TOKEN_PERCENT,
     TOKEN_ASSIGN,
+    TOKEN_PLUS_ASSIGN,
+    TOKEN_MINUS_ASSIGN,
+    TOKEN_STAR_ASSIGN,
+    TOKEN_SLASH_ASSIGN,
+    TOKEN_PERCENT_ASSIGN,
     TOKEN_EQUAL,
     TOKEN_NOT_EQUAL,
     TOKEN_LESS,
@@ -36,12 +45,15 @@ typedef enum {
     TOKEN_AND,
     TOKEN_OR,
     TOKEN_NOT,
+    TOKEN_AMPERSAND,
     TOKEN_INCREMENT,
     TOKEN_DECREMENT,
     TOKEN_LPAREN,
     TOKEN_RPAREN,
     TOKEN_LBRACE,
     TOKEN_RBRACE,
+    TOKEN_LBRACKET,
+    TOKEN_RBRACKET,
     TOKEN_SEMICOLON,
     TOKEN_COMMA
 } TokenType;
@@ -62,12 +74,23 @@ typedef struct {
 typedef enum {
     AST_PROGRAM,
     AST_BLOCK,
+    AST_DECLARATION_LIST,
     AST_DECLARATION,
     AST_ASSIGNMENT,
+    AST_COMPOUND_ASSIGN,
+    AST_STORE,
+    AST_ARRAY_DECL,
     AST_PRINT,
     AST_IF,
     AST_WHILE,
     AST_FOR,
+    AST_FUNCTION,
+    AST_PARAMETER_LIST,
+    AST_PARAMETER,
+    AST_CALL,
+    AST_RETURN,
+    AST_INC_DEC,
+    AST_INDEX,
     AST_BINARY,
     AST_UNARY,
     AST_IDENTIFIER,
@@ -117,11 +140,15 @@ void print_ast(const AstNode *node, int depth);
 bool analyze_semantics(const AstNode *root, DiagnosticArray *diagnostics);
 void print_symbols(void);
 void free_symbols(void);
+void free_functions(void);
 
 void generate_tac(const AstNode *root);
 
 void add_diagnostic(DiagnosticArray *diagnostics, int line, int column,
                    const char *format, ...);
 void free_diagnostics(DiagnosticArray *diagnostics);
+
+bool preprocess_source(const char *source, const char *source_path,
+                       char **processed, DiagnosticArray *diagnostics);
 
 #endif

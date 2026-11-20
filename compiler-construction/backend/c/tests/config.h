@@ -1,0 +1,2 @@
+#define START_VALUE 1
+#define INCREMENT_VALUE 3

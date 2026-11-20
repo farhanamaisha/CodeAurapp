@@ -37,11 +37,14 @@ static TokenType keyword_type(const char *text) {
     if (strcmp(text, "int") == 0) return TOKEN_INT;
     if (strcmp(text, "float") == 0) return TOKEN_FLOAT;
     if (strcmp(text, "bool") == 0 || strcmp(text, "_Bool") == 0) return TOKEN_BOOL;
+    if (strcmp(text, "char") == 0) return TOKEN_CHAR;
+    if (strcmp(text, "void") == 0) return TOKEN_VOID;
     if (strcmp(text, "if") == 0) return TOKEN_IF;
     if (strcmp(text, "else") == 0) return TOKEN_ELSE;
     if (strcmp(text, "while") == 0) return TOKEN_WHILE;
     if (strcmp(text, "for") == 0) return TOKEN_FOR;
     if (strcmp(text, "printf") == 0) return TOKEN_PRINTF;
+    if (strcmp(text, "return") == 0) return TOKEN_RETURN;
     if (strcmp(text, "true") == 0) return TOKEN_TRUE;
     if (strcmp(text, "false") == 0) return TOKEN_FALSE;
     return TOKEN_IDENTIFIER;
@@ -114,25 +117,61 @@ bool lex_source(const char *source, TokenArray *tokens, DiagnosticArray *diagnos
             else add_token(tokens, TOKEN_STRING_LITERAL, source + start, i - start, token_line, token_column);
             continue;
         }
+        if (c == '\'') {
+            size_t start = i++;
+            int characters = 0;
+            bool closed = false;
+            column++;
+            while (source[i] != '\0' && source[i] != '\n') {
+                if (source[i] == '\\' && source[i + 1] != '\0') {
+                    characters++;
+                    i += 2;
+                    column += 2;
+                    continue;
+                }
+                if (source[i] == '\'') {
+                    i++;
+                    column++;
+                    closed = true;
+                    break;
+                }
+                characters++;
+                i++;
+                column++;
+            }
+            if (!closed) {
+                add_diagnostic(diagnostics, token_line, token_column,
+                               "unterminated character literal");
+            } else if (characters != 1) {
+                add_diagnostic(diagnostics, token_line, token_column,
+                               "character literal must contain one character");
+            } else {
+                add_token(tokens, TOKEN_CHAR_LITERAL, source + start,
+                          i - start, token_line, token_column);
+            }
+            continue;
+        }
 
         TokenType type = TOKEN_EOF;
         size_t length = 1;
         switch (c) {
-            case '+': type = source[i + 1] == '+' ? TOKEN_INCREMENT : TOKEN_PLUS; if (type != TOKEN_PLUS) length = 2; break;
-            case '-': type = source[i + 1] == '-' ? TOKEN_DECREMENT : TOKEN_MINUS; if (type != TOKEN_MINUS) length = 2; break;
-            case '*': type = TOKEN_STAR; break;
-            case '/': type = TOKEN_SLASH; break;
-            case '%': type = TOKEN_PERCENT; break;
+            case '+': if (source[i + 1] == '=') { type = TOKEN_PLUS_ASSIGN; length = 2; } else if (source[i + 1] == '+') { type = TOKEN_INCREMENT; length = 2; } else type = TOKEN_PLUS; break;
+            case '-': if (source[i + 1] == '=') { type = TOKEN_MINUS_ASSIGN; length = 2; } else if (source[i + 1] == '-') { type = TOKEN_DECREMENT; length = 2; } else type = TOKEN_MINUS; break;
+            case '*': if (source[i + 1] == '=') { type = TOKEN_STAR_ASSIGN; length = 2; } else type = TOKEN_STAR; break;
+            case '/': if (source[i + 1] == '=') { type = TOKEN_SLASH_ASSIGN; length = 2; } else type = TOKEN_SLASH; break;
+            case '%': if (source[i + 1] == '=') { type = TOKEN_PERCENT_ASSIGN; length = 2; } else type = TOKEN_PERCENT; break;
             case '=': type = source[i + 1] == '=' ? TOKEN_EQUAL : TOKEN_ASSIGN; if (type == TOKEN_EQUAL) length = 2; break;
             case '!': type = source[i + 1] == '=' ? TOKEN_NOT_EQUAL : TOKEN_NOT; if (type == TOKEN_NOT_EQUAL) length = 2; break;
             case '<': type = source[i + 1] == '=' ? TOKEN_LESS_EQUAL : TOKEN_LESS; if (type == TOKEN_LESS_EQUAL) length = 2; break;
             case '>': type = source[i + 1] == '=' ? TOKEN_GREATER_EQUAL : TOKEN_GREATER; if (type == TOKEN_GREATER_EQUAL) length = 2; break;
-            case '&': if (source[i + 1] == '&') { type = TOKEN_AND; length = 2; } break;
+            case '&': if (source[i + 1] == '&') { type = TOKEN_AND; length = 2; } else type = TOKEN_AMPERSAND; break;
             case '|': if (source[i + 1] == '|') { type = TOKEN_OR; length = 2; } break;
             case '(': type = TOKEN_LPAREN; break;
             case ')': type = TOKEN_RPAREN; break;
             case '{': type = TOKEN_LBRACE; break;
             case '}': type = TOKEN_RBRACE; break;
+            case '[': type = TOKEN_LBRACKET; break;
+            case ']': type = TOKEN_RBRACKET; break;
             case ';': type = TOKEN_SEMICOLON; break;
             case ',': type = TOKEN_COMMA; break;
             default: break;
@@ -159,15 +198,23 @@ const char *token_type_name(TokenType type) {
     static const char *names[] = {
         [TOKEN_EOF]="EOF", [TOKEN_IDENTIFIER]="IDENTIFIER", [TOKEN_INT_LITERAL]="INT_LITERAL",
         [TOKEN_FLOAT_LITERAL]="FLOAT_LITERAL", [TOKEN_STRING_LITERAL]="STRING_LITERAL",
+        [TOKEN_CHAR_LITERAL]="CHAR_LITERAL",
         [TOKEN_BOOL_LITERAL]="BOOL_LITERAL", [TOKEN_INT]="INT", [TOKEN_FLOAT]="FLOAT",
-        [TOKEN_BOOL]="BOOL", [TOKEN_IF]="IF", [TOKEN_ELSE]="ELSE", [TOKEN_WHILE]="WHILE",
-        [TOKEN_FOR]="FOR", [TOKEN_PRINTF]="PRINTF", [TOKEN_TRUE]="TRUE", [TOKEN_FALSE]="FALSE",
+        [TOKEN_BOOL]="BOOL", [TOKEN_CHAR]="CHAR", [TOKEN_VOID]="VOID",
+        [TOKEN_IF]="IF", [TOKEN_ELSE]="ELSE",
+        [TOKEN_WHILE]="WHILE", [TOKEN_FOR]="FOR", [TOKEN_PRINTF]="PRINTF",
+        [TOKEN_RETURN]="RETURN", [TOKEN_TRUE]="TRUE", [TOKEN_FALSE]="FALSE",
         [TOKEN_PLUS]="+", [TOKEN_MINUS]="-", [TOKEN_STAR]="*", [TOKEN_SLASH]="/",
-        [TOKEN_PERCENT]="%", [TOKEN_ASSIGN]="=", [TOKEN_EQUAL]="==", [TOKEN_NOT_EQUAL]="!=",
+        [TOKEN_PERCENT]="%", [TOKEN_ASSIGN]="=", [TOKEN_PLUS_ASSIGN]="+=",
+        [TOKEN_MINUS_ASSIGN]="-=", [TOKEN_STAR_ASSIGN]="*=",
+        [TOKEN_SLASH_ASSIGN]="/=", [TOKEN_PERCENT_ASSIGN]="%=",
+        [TOKEN_EQUAL]="==", [TOKEN_NOT_EQUAL]="!=",
         [TOKEN_LESS]="<", [TOKEN_LESS_EQUAL]="<=", [TOKEN_GREATER]=">", [TOKEN_GREATER_EQUAL]=">=",
-        [TOKEN_AND]="&&", [TOKEN_OR]="||", [TOKEN_NOT]="!", [TOKEN_INCREMENT]="++",
-        [TOKEN_DECREMENT]="--", [TOKEN_LPAREN]="(", [TOKEN_RPAREN]=")", [TOKEN_LBRACE]="{",
-        [TOKEN_RBRACE]="}", [TOKEN_SEMICOLON]=";", [TOKEN_COMMA]=","
+        [TOKEN_AND]="&&", [TOKEN_OR]="||", [TOKEN_NOT]="!",
+        [TOKEN_AMPERSAND]="&", [TOKEN_INCREMENT]="++",
+        [TOKEN_DECREMENT]="--", [TOKEN_LPAREN]="(", [TOKEN_RPAREN]=")",
+        [TOKEN_LBRACE]="{", [TOKEN_RBRACE]="}", [TOKEN_LBRACKET]="[",
+        [TOKEN_RBRACKET]="]", [TOKEN_SEMICOLON]=";", [TOKEN_COMMA]=","
     };
     return names[type] == NULL ? "UNKNOWN" : names[type];
 }

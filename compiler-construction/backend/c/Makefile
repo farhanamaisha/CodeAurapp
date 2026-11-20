@@ -6,10 +6,13 @@ TARGET := c-compiler
 
 all: $(TARGET)
 
-$(TARGET): $(SOURCES)
+$(TARGET): $(SOURCES) src/compiler.h
 	$(CC) $(CFLAGS) $(SOURCES) -o $@
+
+test: $(TARGET)
+	tests/run-tests.sh ./$(TARGET)
 
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+.PHONY: all clean test
