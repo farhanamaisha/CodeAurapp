@@ -1,3 +1,4 @@
+
 package runtime;
 
 import ast.ASTNode;
@@ -5,52 +6,70 @@ import java.util.*;
 
 public class ProgramExecutor {
     private final Map<String, Object> variables = new LinkedHashMap<>();
-    private final Queue<String> inputs = new LinkedList<>();
     private final List<String> output = new ArrayList<>();
+
+    private Scanner inputScanner;
     private static final int MAX_STEPS = 100000;
     private int steps = 0;
 
     public List<String> execute(ASTNode root, String input) {
         variables.clear();
         output.clear();
-        inputs.clear();
         steps = 0;
+        inputScanner = new Scanner(input == null ? "" : input);
 
-        if (input != null && !input.isBlank()) {
-            inputs.addAll(Arrays.asList(input.split("\\R")));
+        try {
+            executeNode(root);
+            return output;
+        } finally {
+            inputScanner.close();
         }
-
-        executeNode(root);
-        return output;
     }
 
     private void tick() {
-        if (++steps > MAX_STEPS)
-            throw new RuntimeException("Execution Error: Maximum instruction limit exceeded.");
+        if (++steps > MAX_STEPS) {
+            throw new RuntimeException(
+                "Runtime Error: Maximum instruction limit exceeded."
+            );
+        }
     }
 
     private void executeNode(ASTNode node) {
+        if (node == null) return;
+
         tick();
 
         switch (node.getType()) {
             case "PROGRAM":
             case "BLOCK":
-                for (ASTNode child : node.getChildren()) executeNode(child);
+                for (ASTNode child : node.getChildren()) {
+                    executeNode(child);
+                }
                 break;
 
-            case "DECLARATION":
+            case "SCANNER_DECL":
+                // Scanner object is provided by the runtime.
+                break;
+
+            case "DECLARATION": {
                 String name = node.getChildren().get(0).getValue();
                 Object value = node.getChildren().size() > 1
-                    ? evaluate(node.getChildren().get(1)) : 0;
+                    ? evaluate(node.getChildren().get(1)) : 0.0;
                 variables.put(name, value);
                 break;
+            }
 
             case "ASSIGNMENT":
-                variables.put(node.getValue(), evaluate(node.getChildren().get(0)));
+                variables.put(
+                    node.getValue(),
+                    evaluate(node.getChildren().get(0))
+                );
                 break;
 
             case "PRINT":
-                output.add(formatOutput(evaluate(node.getChildren().get(0))));
+                output.add(formatOutput(
+                    evaluate(node.getChildren().get(0))
+                ));
                 break;
 
             case "IF":
@@ -76,21 +95,26 @@ public class ProgramExecutor {
                 break;
 
             default:
-                for (ASTNode child : node.getChildren()) executeNode(child);
+                for (ASTNode child : node.getChildren()) {
+                    executeNode(child);
+                }
         }
     }
 
     private void executeFor(ASTNode node) {
-        List<ASTNode> c = node.getChildren();
-        executeNode(c.get(0));
+        List<ASTNode> children = node.getChildren();
 
-        while (c.get(1).getType().equals("EMPTY") ||
-               truth(evaluate(c.get(1)))) {
+        executeNode(children.get(0));
+
+        while (children.get(1).getType().equals("EMPTY")
+                || truth(evaluate(children.get(1)))) {
+
             tick();
-            executeNode(c.get(3));
+            executeNode(children.get(3));
 
-            if (!c.get(2).getType().equals("EMPTY"))
-                executeNode(c.get(2));
+            if (!children.get(2).getType().equals("EMPTY")) {
+                executeNode(children.get(2));
+            }
         }
     }
 
@@ -100,21 +124,32 @@ public class ProgramExecutor {
                 return literal(node.getValue());
 
             case "IDENTIFIER":
-                if (!variables.containsKey(node.getValue()))
-                    throw new RuntimeException("Runtime Error: Variable '" +
-                        node.getValue() + "' has no value.");
+                if (!variables.containsKey(node.getValue())) {
+                    throw new RuntimeException(
+                        "Runtime Error: Variable '" + node.getValue()
+                        + "' has no value."
+                    );
+                }
                 return variables.get(node.getValue());
 
-            case "UNARY":
+            case "INPUT":
+                return readInput(node.getValue());
+
+            case "UNARY": {
                 Object operand = evaluate(node.getChildren().get(0));
+
                 switch (node.getValue()) {
                     case "-": return -number(operand);
                     case "+": return number(operand);
                     case "!": return !truth(operand);
-                    default: throw new RuntimeException("Unsupported unary operator.");
+                    default:
+                        throw new RuntimeException(
+                            "Runtime Error: Unsupported unary operator."
+                        );
                 }
+            }
 
-            case "BINARY":
+            case "BINARY": {
                 Object left = evaluate(node.getChildren().get(0));
                 String op = node.getValue();
 
@@ -122,38 +157,94 @@ public class ProgramExecutor {
                 if (op.equals("||") && truth(left)) return true;
 
                 Object right = evaluate(node.getChildren().get(1));
-                double a = number(left);
-                double b = number(right);
 
                 switch (op) {
-                    case "+": return a + b;
-                    case "-": return a - b;
-                    case "*": return a * b;
+                    case "+":
+                        if (left instanceof String || right instanceof String) {
+                            return String.valueOf(left) + right;
+                        }
+                        return number(left) + number(right);
+
+                    case "-": return number(left) - number(right);
+                    case "*": return number(left) * number(right);
+
                     case "/":
-                        if (b == 0) throw new RuntimeException("Runtime Error: Division by zero.");
-                        return a / b;
+                        if (number(right) == 0) {
+                            throw new RuntimeException(
+                                "Runtime Error: Division by zero."
+                            );
+                        }
+                        return number(left) / number(right);
+
                     case "%":
-                        if (b == 0) throw new RuntimeException("Runtime Error: Division by zero.");
-                        return a % b;
-                    case "<": return a < b;
-                    case ">": return a > b;
-                    case "<=": return a <= b;
-                    case ">=": return a >= b;
-                    case "==": return left.equals(right) || a == b;
-                    case "!=": return !(left.equals(right) || a == b);
+                        if (number(right) == 0) {
+                            throw new RuntimeException(
+                                "Runtime Error: Division by zero."
+                            );
+                        }
+                        return number(left) % number(right);
+
+                    case "<": return number(left) < number(right);
+                    case ">": return number(left) > number(right);
+                    case "<=": return number(left) <= number(right);
+                    case ">=": return number(left) >= number(right);
+                    case "==": return Objects.equals(left, right);
+                    case "!=": return !Objects.equals(left, right);
                     case "&&": return truth(left) && truth(right);
                     case "||": return truth(left) || truth(right);
-                    default: throw new RuntimeException("Unsupported operator: " + op);
+
+                    default:
+                        throw new RuntimeException(
+                            "Runtime Error: Unsupported operator: " + op
+                        );
                 }
+            }
 
             default:
-                throw new RuntimeException("Unsupported expression: " + node.getType());
+                throw new RuntimeException(
+                    "Runtime Error: Unsupported expression: " + node.getType()
+                );
+        }
+    }
+
+    private Object readInput(String type) {
+        try {
+            switch (type) {
+                case "int":
+                    return (double) inputScanner.nextInt();
+
+                case "float":
+                    return (double) inputScanner.nextFloat();
+
+                case "String":
+                    return inputScanner.nextLine();
+
+                default:
+                    throw new RuntimeException(
+                        "Runtime Error: Unsupported Scanner input type: " + type
+                    );
+            }
+        } catch (InputMismatchException e) {
+            throw new RuntimeException(
+                "Runtime Error: Invalid input. Expected " + type + "."
+            );
+        } catch (NoSuchElementException e) {
+            throw new RuntimeException(
+                "Runtime Error: No input available for Scanner.next"
+                + type + "()."
+            );
         }
     }
 
     private Object literal(String value) {
         if (value.equals("true")) return true;
         if (value.equals("false")) return false;
+
+        if (value.length() >= 2
+                && value.startsWith("\"")
+                && value.endsWith("\"")) {
+            return value.substring(1, value.length() - 1);
+        }
 
         try {
             return Double.parseDouble(value);
@@ -163,12 +254,20 @@ public class ProgramExecutor {
     }
 
     private double number(Object value) {
-        if (value instanceof Number) return ((Number) value).doubleValue();
-        if (value instanceof Boolean) return (Boolean) value ? 1 : 0;
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+
+        if (value instanceof Boolean) {
+            return (Boolean) value ? 1 : 0;
+        }
+
         try {
             return Double.parseDouble(String.valueOf(value));
         } catch (NumberFormatException e) {
-            throw new RuntimeException("Runtime Error: Expected a numeric value.");
+            throw new RuntimeException(
+                "Runtime Error: Expected a numeric value."
+            );
         }
     }
 
@@ -185,7 +284,7 @@ public class ProgramExecutor {
                 && Math.abs(number) < 9.0e18) {
             return Long.toString(number.longValue());
         }
+
         return String.valueOf(value);
     }
-
 }

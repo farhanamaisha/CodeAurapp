@@ -12,16 +12,18 @@ const starterCode = `public class Test {
 }`;
 
 function getErrorCategory(message) {
-    const error = message.toLowerCase();
+    const error = String(message).toLowerCase();
 
     if (/lexical|illegal character|invalid token|unrecognized token/.test(error))
         return "Lexical Error";
-    if (/syntax|parse|unexpected token|expected/.test(error))
-        return "Syntax Error";
+    if (/runtime|division by zero|no more input|invalid int|invalid float/.test(error))
+        return "Runtime Error";
     if (/semantic|undeclared|already declared|type mismatch|incompatible/.test(error))
         return "Semantic Error";
-    if (/runtime|division by zero|uninitialized variable/.test(error))
-        return "Runtime Error";
+    if (/syntax|parse|unexpected token|\bexpected\b|can't recover/.test(error))
+        return "Syntax Error";
+    if (/build|maven|compilation failed|internal/.test(error))
+        return "Build / Internal Error";
 
     return "Compiler Error";
 }
@@ -54,10 +56,19 @@ export default function App() {
             const response = await fetch("/api/compile", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source })
+                body: JSON.stringify({ source, input })
             });
 
-            const data = await response.json();
+            const responseText = await response.text();
+            let data;
+
+            try {
+                data = JSON.parse(responseText);
+            } catch {
+                throw new Error(
+                    `Invalid response from Java compiler (HTTP ${response.status}).`
+                );
+            }
 
             if (!response.ok) {
                 throw new Error(
@@ -70,9 +81,13 @@ export default function App() {
         } catch (error) {
             setResult({
                 success: false,
-                errors: [
-                    error.message || "Could not connect to Java compiler."
-                ]
+                tokens: null,
+                ast: null,
+                symbols: null,
+                tac: null,
+                programOutput: [],
+                runtimeErrors: [],
+                errors: [error.message || "Could not connect to Java compiler."]
             });
         } finally {
             setLoading(false);
@@ -98,9 +113,7 @@ export default function App() {
                 <div className="section-heading">
                     <div>
                         <h2>Java Source Code</h2>
-                        <p className="hint">
-                            Write your Java program below.
-                        </p>
+                        <p className="hint">Write your Java program below.</p>
                     </div>
 
                     <button
@@ -124,14 +137,15 @@ export default function App() {
             <section className="editor-section">
                 <h2>Standard Input</h2>
                 <p className="hint">
-                    Enter input for your program here.
+                    Enter the values your Scanner statements will read.
+                    Separate values with spaces or new lines.
                 </p>
 
                 <textarea
                     className="input-editor"
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder="Enter program input here..."
+                    placeholder={"Example:\n25\nFarhana"}
                 />
             </section>
 
@@ -149,11 +163,10 @@ export default function App() {
                     {errors.length > 0 && (
                         <div className="panel error-panel">
                             <h3>Compilation Diagnostics</h3>
-
                             {errors.map((error, index) => (
                                 <div className="diagnostic" key={index}>
                                     <strong>
-                                        {getErrorCategory(String(error))}
+                                        {getErrorCategory(error)}
                                     </strong>
                                     <p>{String(error)}</p>
                                 </div>
@@ -164,7 +177,6 @@ export default function App() {
                     {runtimeErrors.length > 0 && (
                         <div className="panel error-panel">
                             <h3>Runtime Diagnostics</h3>
-
                             {runtimeErrors.map((error, index) => (
                                 <div className="diagnostic" key={index}>
                                     <strong>Runtime Error</strong>
@@ -288,7 +300,6 @@ export default function App() {
 
             <section className="panel">
                 <h3>Program Output</h3>
-
                 <pre className="output-placeholder">
                     {!result
                         ? "Compile your Java program to view its output here."

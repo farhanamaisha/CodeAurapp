@@ -43,9 +43,12 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <COMMENT> "*"                  { /* Ignore comment character */ }
 <COMMENT> <<EOF>>              {
     throw new RuntimeException(
-        "Unterminated block comment at line " + (yyline + 1)
+        "Lexical Error: Unterminated block comment at line "
+        + (yyline + 1)
     );
 }
+
+/* Java class and main keywords */
 
 <YYINITIAL> "class"            { return keyword(sym.CLASS); }
 <YYINITIAL> "public"           { return keyword(sym.PUBLIC); }
@@ -55,23 +58,42 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "void"             { return keyword(sym.VOID); }
 <YYINITIAL> "main"             { return keyword(sym.MAIN); }
 
+/* Data types */
+
 <YYINITIAL> "int"              { return keyword(sym.INT); }
 <YYINITIAL> "float"            { return keyword(sym.FLOAT); }
 <YYINITIAL> "double"           { return keyword(sym.DOUBLE); }
 <YYINITIAL> "boolean"          { return keyword(sym.BOOLEAN); }
 <YYINITIAL> "String"           { return keyword(sym.STRING); }
 
+/* Control flow */
+
 <YYINITIAL> "if"               { return keyword(sym.IF); }
 <YYINITIAL> "else"             { return keyword(sym.ELSE); }
 <YYINITIAL> "while"            { return keyword(sym.WHILE); }
 <YYINITIAL> "for"              { return keyword(sym.FOR); }
 
+/* Scanner input keywords */
+
+<YYINITIAL> "Scanner"          { return keyword(sym.SCANNER); }
+<YYINITIAL> "new"              { return keyword(sym.NEW); }
+<YYINITIAL> "in"               { return keyword(sym.IN); }
+<YYINITIAL> "nextInt"          { return keyword(sym.NEXT_INT); }
+<YYINITIAL> "nextFloat"        { return keyword(sym.NEXT_FLOAT); }
+<YYINITIAL> "nextLine"         { return keyword(sym.NEXT_LINE); }
+
+/* Output keywords */
+
 <YYINITIAL> "System"           { return keyword(sym.SYSTEM); }
 <YYINITIAL> "out"              { return keyword(sym.OUT); }
 <YYINITIAL> "println"          { return keyword(sym.PRINTLN); }
-<YYINITIAL> "print"             { return keyword(sym.PRINT); }
+<YYINITIAL> "print"            { return keyword(sym.PRINT); }
+
+/* Boolean literals */
 
 <YYINITIAL> "true"|"false"     { return token(sym.BOOLEAN_LITERAL); }
+
+/* Operators */
 
 <YYINITIAL> "&&"               { return keyword(sym.AND); }
 <YYINITIAL> "||"               { return keyword(sym.OR); }
@@ -92,6 +114,8 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> ">"                { return keyword(sym.GREATER); }
 <YYINITIAL> "!"                { return keyword(sym.NOT); }
 
+/* Delimiters */
+
 <YYINITIAL> "{"                { return keyword(sym.LBRACE); }
 <YYINITIAL> "}"                { return keyword(sym.RBRACE); }
 <YYINITIAL> "("                { return keyword(sym.LPAREN); }
@@ -102,14 +126,18 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> ","                { return keyword(sym.COMMA); }
 <YYINITIAL> "."                { return keyword(sym.DOT); }
 
+/* Literals and identifiers */
+
 <YYINITIAL> {Float}             { return token(sym.FLOAT_LITERAL); }
 <YYINITIAL> {Integer}           { return token(sym.INTEGER_LITERAL); }
 <YYINITIAL> {StringLiteral}     { return token(sym.STRING_LITERAL); }
 <YYINITIAL> {Identifier}        { return token(sym.IDENTIFIER); }
 
+/* Invalid characters */
+
 <YYINITIAL> . {
     throw new RuntimeException(
-        "Lexical error at line " + (yyline + 1)
+        "Lexical Error at line " + (yyline + 1)
         + ", column " + (yycolumn + 1)
         + ": unexpected character '" + yytext() + "'"
     );
