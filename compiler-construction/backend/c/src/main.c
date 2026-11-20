@@ -186,6 +186,7 @@ int main(int argc, char **argv) {
             printf("\n=== AST ===\n"); print_ast(ast, 0);
             analyze_semantics(ast, &diagnostics);
             if (diagnostics.count == 0) {
+                optimize_ast(ast);
                 printf("\n=== SYMBOLS ===\n"); print_symbols();
                 printf("\n=== THREE-ADDRESS CODE ===\n"); generate_tac(ast);
             }

@@ -88,6 +88,19 @@ run_execution_test() {
     pass_count=$((pass_count + 1))
 }
 
+run_optimization_test() {
+    output="$tmp_dir/optimization.out"
+    "$compiler" "$tests_dir/optimization.c" >"$output" \
+        2>"$tmp_dir/optimization.err"
+    assert_contains "$output" "value = 5"
+    assert_contains "$output" "copy = value"
+    if grep -Fq "copy = copy" "$output"; then
+        printf 'Copy-propagated redundant assignment remains\n' >&2
+        exit 1
+    fi
+    pass_count=$((pass_count + 1))
+}
+
 run_invalid_test() {
     name=$1
     expected_message=$2
@@ -107,6 +120,7 @@ run_language_features_test
 run_arrays_pointers_test
 run_preprocessor_test
 run_execution_test
+run_optimization_test
 run_invalid_test invalid_semantic "cannot initialize int variable with bool value"
 run_invalid_test invalid_lexical "unexpected character '@'"
 run_invalid_test invalid_syntax "expected variable name"

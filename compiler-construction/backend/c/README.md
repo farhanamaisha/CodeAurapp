@@ -28,6 +28,9 @@ The pipeline produces tokens, an AST, scoped symbols, three-address code, and
 diagnostics. It is intentionally backend-only; the existing React application
 and Java API are unchanged.
 
+The Code Optimization phase performs constant folding, local copy propagation,
+and removal of redundant/self-copy assignments before TAC generation.
+
 ## Build and run
 
 ```sh
