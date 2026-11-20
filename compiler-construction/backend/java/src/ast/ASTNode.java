@@ -18,7 +18,9 @@ public class ASTNode {
     }
 
     public void addChild(ASTNode child) {
-        children.add(child);
+        if (child != null) {
+            children.add(child);
+        }
     }
 
     public String getType() {

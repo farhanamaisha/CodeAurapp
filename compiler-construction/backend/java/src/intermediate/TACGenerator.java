@@ -2,25 +2,50 @@
 package intermediate;
 
 import ast.ASTNode;
+
+import java.math.BigDecimal;
+import java.math.MathContext;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TACGenerator {
 
     private final List<String> code = new ArrayList<>();
-    private int tempCount = 0;
-    private int labelCount = 0;
+    private final Map<String, String> constants = new HashMap<>();
 
+    private int tempCount;
+    private int labelCount;
+    private boolean optimizationEnabled;
+
+    // Phase 4: Generate original, unoptimized three-address code.
     public List<String> generate(ASTNode root) {
+        return generateInternal(root, false);
+    }
+
+    // Phase 5: Generate optimized three-address code.
+    public List<String> optimize(ASTNode root) {
+        return generateInternal(root, true);
+    }
+
+    private List<String> generateInternal(
+            ASTNode root, boolean enableOptimization) {
+
         code.clear();
+        constants.clear();
+
         tempCount = 0;
         labelCount = 0;
+        optimizationEnabled = enableOptimization;
 
         generateNode(root);
-        return code;
+
+        return new ArrayList<>(code);
     }
 
     private void generateNode(ASTNode node) {
+        if (node == null) return;
 
         switch (node.getType()) {
 
@@ -32,19 +57,18 @@ public class TACGenerator {
                 break;
 
             case "DECLARATION":
-                if (node.getChildren().size() > 1) {
-                    String value = generateExpression(node.getChildren().get(1));
-                    code.add(node.getChildren().get(0).getValue() + " = " + value);
-                }
+                generateDeclaration(node);
                 break;
 
             case "ASSIGNMENT":
-                String value = generateExpression(node.getChildren().get(0));
-                code.add(node.getValue() + " = " + value);
+                generateAssignment(node);
                 break;
 
             case "PRINT":
-                code.add("print " + generateExpression(node.getChildren().get(0)));
+                if (!node.getChildren().isEmpty()) {
+                    code.add("print " +
+                        generateExpression(node.getChildren().get(0)));
+                }
                 break;
 
             case "IF":
@@ -64,42 +88,115 @@ public class TACGenerator {
         }
     }
 
+    private void generateDeclaration(ASTNode node) {
+
+        List<ASTNode> children = node.getChildren();
+
+        if (children.isEmpty()) return;
+
+        String variable = children.get(0).getValue();
+
+        if (children.size() > 1) {
+
+            String value = generateExpression(children.get(1));
+
+            code.add(variable + " = " + value);
+
+            if (optimizationEnabled && isLiteral(value)) {
+                constants.put(variable, value);
+            } else {
+                constants.remove(variable);
+            }
+
+        } else {
+            constants.remove(variable);
+        }
+    }
+
+    private void generateAssignment(ASTNode node) {
+
+        if (node.getChildren().isEmpty()) return;
+
+        String variable = node.getValue();
+        String value = generateExpression(node.getChildren().get(0));
+
+        code.add(variable + " = " + value);
+
+        if (optimizationEnabled && isLiteral(value)) {
+            constants.put(variable, value);
+        } else {
+            constants.remove(variable);
+        }
+    }
+
     private void generateIf(ASTNode node) {
-        String condition = generateExpression(node.getChildren().get(0));
+
+        List<ASTNode> children = node.getChildren();
+
+        if (children.size() < 2) return;
+
+        String condition = generateExpression(children.get(0));
+
         String elseLabel = newLabel();
         String endLabel = newLabel();
 
         code.add("ifFalse " + condition + " goto " + elseLabel);
-        generateNode(node.getChildren().get(1));
 
-        if (node.getChildren().size() > 2) {
+        constants.clear();
+        generateNode(children.get(1));
+
+        if (children.size() > 2) {
+
             code.add("goto " + endLabel);
             code.add(elseLabel + ":");
-            generateNode(node.getChildren().get(2));
+
+            constants.clear();
+            generateNode(children.get(2));
+
             code.add(endLabel + ":");
+
         } else {
             code.add(elseLabel + ":");
         }
+
+        constants.clear();
     }
 
     private void generateWhile(ASTNode node) {
+
+        List<ASTNode> children = node.getChildren();
+
+        if (children.size() < 2) return;
+
+        constants.clear();
+
         String start = newLabel();
         String end = newLabel();
 
         code.add(start + ":");
-        String condition = generateExpression(node.getChildren().get(0));
+
+        String condition = generateExpression(children.get(0));
+
         code.add("ifFalse " + condition + " goto " + end);
 
-        generateNode(node.getChildren().get(1));
+        constants.clear();
+        generateNode(children.get(1));
 
         code.add("goto " + start);
         code.add(end + ":");
+
+        constants.clear();
     }
 
     private void generateFor(ASTNode node) {
+
         List<ASTNode> children = node.getChildren();
 
+        if (children.size() < 4) return;
+
         generateNode(children.get(0));
+
+        constants.clear();
 
         String start = newLabel();
         String end = newLabel();
@@ -111,7 +208,10 @@ public class TACGenerator {
             code.add("ifFalse " + condition + " goto " + end);
         }
 
+        constants.clear();
         generateNode(children.get(3));
+
+        constants.clear();
 
         if (!children.get(2).getType().equals("EMPTY")) {
             generateNode(children.get(2));
@@ -119,36 +219,223 @@ public class TACGenerator {
 
         code.add("goto " + start);
         code.add(end + ":");
+
+        constants.clear();
     }
 
     private String generateExpression(ASTNode node) {
 
+        if (node == null) return "";
+
         switch (node.getType()) {
 
             case "LITERAL":
-            case "IDENTIFIER":
                 return node.getValue();
 
-            case "BINARY":
-                String left = generateExpression(node.getChildren().get(0));
-                String right = generateExpression(node.getChildren().get(1));
+            case "IDENTIFIER": {
+                String variable = node.getValue();
+
+                if (optimizationEnabled) {
+                    return constants.getOrDefault(variable, variable);
+                }
+
+                return variable;
+            }
+
+            case "BINARY": {
+
+                String left =
+                    generateExpression(node.getChildren().get(0));
+
+                String right =
+                    generateExpression(node.getChildren().get(1));
+
+                String operator = node.getValue();
+
+                if (optimizationEnabled) {
+                    String folded = foldBinary(operator, left, right);
+
+                    if (folded != null) {
+                        return folded;
+                    }
+                }
+
                 String temp = newTemp();
 
                 code.add(temp + " = " + left + " " +
-                         node.getValue() + " " + right);
+                    operator + " " + right);
 
                 return temp;
+            }
 
-            case "UNARY":
-                String operand = generateExpression(node.getChildren().get(0));
-                String result = newTemp();
+            case "UNARY": {
 
-                code.add(result + " = " + node.getValue() + operand);
-                return result;
+                String operand =
+                    generateExpression(node.getChildren().get(0));
+
+                String operator = node.getValue();
+
+                if (optimizationEnabled) {
+                    String folded = foldUnary(operator, operand);
+
+                    if (folded != null) {
+                        return folded;
+                    }
+                }
+
+                String temp = newTemp();
+
+                code.add(temp + " = " + operator + operand);
+
+                return temp;
+            }
 
             default:
                 return "";
         }
+    }
+
+    private String foldBinary(
+            String operator, String left, String right) {
+
+        try {
+
+            if (operator.equals("&&") || operator.equals("||")) {
+
+                if (!isBoolean(left) || !isBoolean(right)) {
+                    return null;
+                }
+
+                boolean a = Boolean.parseBoolean(left);
+                boolean b = Boolean.parseBoolean(right);
+
+                return String.valueOf(
+                    operator.equals("&&") ? a && b : a || b
+                );
+            }
+
+            if (operator.equals("==") || operator.equals("!=")) {
+
+                if (isNumeric(left) && isNumeric(right)) {
+
+                    int comparison =
+                        new BigDecimal(left).compareTo(new BigDecimal(right));
+
+                    return String.valueOf(
+                        operator.equals("==")
+                            ? comparison == 0
+                            : comparison != 0
+                    );
+                }
+
+                if (isBoolean(left) && isBoolean(right)) {
+
+                    boolean equal = left.equals(right);
+
+                    return String.valueOf(
+                        operator.equals("==") ? equal : !equal
+                    );
+                }
+
+                return null;
+            }
+
+            if (!isNumeric(left) || !isNumeric(right)) {
+                return null;
+            }
+
+            BigDecimal a = new BigDecimal(left);
+            BigDecimal b = new BigDecimal(right);
+
+            switch (operator) {
+
+                case "+":
+                    return format(a.add(b));
+
+                case "-":
+                    return format(a.subtract(b));
+
+                case "*":
+                    return format(a.multiply(b));
+
+                case "/":
+                    if (b.compareTo(BigDecimal.ZERO) == 0) {
+                        return null;
+                    }
+                    return format(a.divide(b, MathContext.DECIMAL128));
+
+                case "%":
+                    if (b.compareTo(BigDecimal.ZERO) == 0) {
+                        return null;
+                    }
+                    return format(a.remainder(b));
+
+                case "<":
+                    return String.valueOf(a.compareTo(b) < 0);
+
+                case ">":
+                    return String.valueOf(a.compareTo(b) > 0);
+
+                case "<=":
+                    return String.valueOf(a.compareTo(b) <= 0);
+
+                case ">=":
+                    return String.valueOf(a.compareTo(b) >= 0);
+
+                default:
+                    return null;
+            }
+
+        } catch (ArithmeticException | NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private String foldUnary(String operator, String operand) {
+
+        try {
+
+            if (operator.equals("-") && isNumeric(operand)) {
+                return format(new BigDecimal(operand).negate());
+            }
+
+            if (operator.equals("!") && isBoolean(operand)) {
+                return String.valueOf(!Boolean.parseBoolean(operand));
+            }
+
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+
+        return null;
+    }
+
+    private boolean isLiteral(String value) {
+        return isNumeric(value)
+            || isBoolean(value)
+            || (value != null
+                && value.startsWith("\"")
+                && value.endsWith("\""));
+    }
+
+    private boolean isNumeric(String value) {
+
+        if (value == null) return false;
+
+        try {
+            new BigDecimal(value);
+            return true;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    private boolean isBoolean(String value) {
+        return "true".equals(value) || "false".equals(value);
+    }
+
+    private String format(BigDecimal number) {
+        return number.stripTrailingZeros().toPlainString();
     }
 
     private String newTemp() {

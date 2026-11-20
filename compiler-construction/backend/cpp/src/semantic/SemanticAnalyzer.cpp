@@ -75,6 +75,14 @@ void SemanticAnalyzer::analyzeNode(const std::shared_ptr<ASTNode>& node) {
         }
         return;
     }
+    if (type == "INPUT" || type == "INPUT_LINE") {
+        for (const auto& child : node->getChildren()) {
+            if (symbolTable_.lookup(child->getValue()) == nullptr) {
+                error(child, "Undeclared variable: " + child->getValue());
+            }
+        }
+        return;
+    }
 
     for (const auto& child : node->getChildren()) {
         analyzeNode(child);

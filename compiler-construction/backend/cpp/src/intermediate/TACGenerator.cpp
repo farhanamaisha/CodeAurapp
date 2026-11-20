@@ -48,6 +48,13 @@ void TACGenerator::generateNode(const std::shared_ptr<ASTNode>& node) {
         }
         return;
     }
+    if (type == "INPUT" || type == "INPUT_LINE") {
+        for (const auto& child : node->getChildren()) {
+            const std::string operation = type == "INPUT_LINE" ? "readline " : "read ";
+            code_.push_back(operation + child->getValue());
+        }
+        return;
+    }
     if (type == "IF") {
         generateIf(node);
         return;

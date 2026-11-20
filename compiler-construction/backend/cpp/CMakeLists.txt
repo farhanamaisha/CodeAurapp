@@ -17,6 +17,8 @@ target_include_directories(cpp_compiler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 enable_testing()
 add_test(NAME cpp_valid_sample COMMAND cpp_compiler ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample_valid.cpp)
 set_tests_properties(cpp_valid_sample PROPERTIES PASS_REGULAR_EXPRESSION "\"success\":true")
+add_test(NAME cpp_input_sample COMMAND cpp_compiler ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample_input.cpp)
+set_tests_properties(cpp_input_sample PROPERTIES PASS_REGULAR_EXPRESSION "\"success\":true.*READ firstName.*READ age.*READLINE fullName")
 add_test(NAME cpp_optimized_sample COMMAND cpp_compiler ${CMAKE_CURRENT_SOURCE_DIR}/tests/sample_optimized.cpp)
 set_tests_properties(cpp_optimized_sample PROPERTIES PASS_REGULAR_EXPRESSION "t1 = 3")
 
