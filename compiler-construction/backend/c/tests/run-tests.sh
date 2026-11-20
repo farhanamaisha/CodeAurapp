@@ -20,10 +20,11 @@ assert_contains() {
 run_valid_test() {
     output="$tmp_dir/valid.out"
     "$compiler" "$tests_dir/valid_program.c" >"$output" 2>"$tmp_dir/valid.err"
-    assert_contains "$output" "=== TOKENS ==="
-    assert_contains "$output" "=== AST ==="
-    assert_contains "$output" "=== SYMBOLS ==="
-    assert_contains "$output" "=== THREE-ADDRESS CODE ==="
+    assert_contains "$output" "=== 1. LEXICAL ANALYSIS: TOKENS ==="
+    assert_contains "$output" "=== 2. SYNTAX ANALYSIS: AST ==="
+    assert_contains "$output" "=== 3. SEMANTIC ANALYSIS: SYMBOLS ==="
+    assert_contains "$output" "=== 4. CODE OPTIMIZATION: OPTIMIZED AST ==="
+    assert_contains "$output" "=== 5. INTERMEDIATE CODE GENERATION: TAC ==="
     assert_contains "$output" "add:"
     assert_contains "$output" "main:"
     assert_contains "$output" "param 1"
@@ -85,6 +86,8 @@ run_execution_test() {
         printf 'Expected executed program output of 6\n' >&2
         exit 1
     fi
+    assert_contains "$output" "=== 6. CODE GENERATION AND EXECUTION ==="
+    assert_contains "$output" "Status: compiled and executed successfully"
     pass_count=$((pass_count + 1))
 }
 

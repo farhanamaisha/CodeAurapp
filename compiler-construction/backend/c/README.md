@@ -49,6 +49,9 @@ To validate, compile, and run a supported program:
 
 `--run` uses the system `cc` compiler for the final executable step. The
 backend's `printf(expression);` form is converted to a numeric line of output.
+The terminal output is labeled for all six compiler-construction phases:
+lexical analysis, syntax analysis, semantic analysis, code optimization,
+intermediate code generation, and code generation/execution.
 
 ## Tests
 

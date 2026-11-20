@@ -176,19 +176,24 @@ int main(int argc, char **argv) {
     preprocess_source(source, source_path, &processed_source, &diagnostics);
     if (diagnostics.count == 0)
         lex_source(processed_source, &tokens, &diagnostics);
-    printf("=== TOKENS ===\n");
+    printf("=== 1. LEXICAL ANALYSIS: TOKENS ===\n");
     for (size_t i = 0; i < tokens.count; i++)
         printf("%s\t%s\tline %d\n", token_type_name(tokens.items[i].type),
                tokens.items[i].lexeme, tokens.items[i].line);
     if (diagnostics.count == 0) {
         AstNode *ast = parse_program(&tokens, &diagnostics);
         if (diagnostics.count == 0) {
-            printf("\n=== AST ===\n"); print_ast(ast, 0);
+            printf("\n=== 2. SYNTAX ANALYSIS: AST ===\n");
+            print_ast(ast, 0);
             analyze_semantics(ast, &diagnostics);
             if (diagnostics.count == 0) {
+                printf("\n=== 3. SEMANTIC ANALYSIS: SYMBOLS ===\n");
+                print_symbols();
                 optimize_ast(ast);
-                printf("\n=== SYMBOLS ===\n"); print_symbols();
-                printf("\n=== THREE-ADDRESS CODE ===\n"); generate_tac(ast);
+                printf("\n=== 4. CODE OPTIMIZATION: OPTIMIZED AST ===\n");
+                print_ast(ast, 0);
+                printf("\n=== 5. INTERMEDIATE CODE GENERATION: TAC ===\n");
+                generate_tac(ast);
             }
         }
         free_ast(ast);
@@ -199,10 +204,22 @@ int main(int argc, char **argv) {
         print_diagnostics(&diagnostics);
     }
     if (success && run) {
+        printf("\n=== 6. CODE GENERATION AND EXECUTION ===\n");
+        printf("Target: system C compiler (cc)\n");
+        printf("Program output:\n");
+        fflush(stdout);
         char *generated = runtime_source(processed_source);
         int run_status = run_compiled_source(generated);
         free(generated);
-        if (run_status != 0) success = false;
+        if (run_status != 0) {
+            printf("Status: failed\n");
+            success = false;
+        } else {
+            printf("Status: compiled and executed successfully\n");
+        }
+    } else if (success) {
+        printf("\n=== 6. CODE GENERATION ===\n");
+        printf("Not generated. Use ./c-compiler --run <source.c>\n");
     }
     free_symbols(); free_diagnostics(&diagnostics); free_tokens(&tokens);
     free(processed_source); free(source);
