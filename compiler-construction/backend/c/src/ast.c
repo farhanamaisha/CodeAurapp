@@ -45,6 +45,7 @@ const char *ast_kind_name(AstKind kind) {
         [AST_STORE]="STORE",
         [AST_ARRAY_DECL]="ARRAY_DECL",
         [AST_PRINT]="PRINT", [AST_IF]="IF",
+        [AST_INPUT]="INPUT",
         [AST_WHILE]="WHILE", [AST_FOR]="FOR", [AST_FUNCTION]="FUNCTION",
         [AST_PARAMETER_LIST]="PARAMETER_LIST", [AST_PARAMETER]="PARAMETER",
         [AST_CALL]="CALL", [AST_RETURN]="RETURN", [AST_INC_DEC]="INC_DEC",

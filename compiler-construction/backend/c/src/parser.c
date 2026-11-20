@@ -220,10 +220,42 @@ static AstNode *call(Parser *p) {
 static AstNode *print_statement(Parser *p) {
     const Token *token = advance(p);
     expect(p, TOKEN_LPAREN, "expected '(' after printf");
-    AstNode *node = ast_node(AST_PRINT, NULL, token->line);
-    ast_add_child(node, expression(p));
+    AstNode *node;
+    if (check(p, TOKEN_STRING_LITERAL)) {
+        const Token *format = advance(p);
+        node = ast_node(AST_PRINT, format->lexeme, token->line);
+        while (match(p, TOKEN_COMMA)) {
+            ast_add_child(node, expression(p));
+        }
+    } else {
+        node = ast_node(AST_PRINT, NULL, token->line);
+        ast_add_child(node, expression(p));
+    }
     expect(p, TOKEN_RPAREN, "expected ')' after printf argument");
     expect(p, TOKEN_SEMICOLON, "expected ';' after printf");
+    return node;
+}
+
+static AstNode *input_statement(Parser *p) {
+    const Token *token = advance(p);
+    expect(p, TOKEN_LPAREN, "expected '(' after scanf");
+    if (!expect(p, TOKEN_STRING_LITERAL,
+                "expected format string after scanf")) {
+        return empty_node(token->line);
+    }
+    const Token *format = previous(p);
+    AstNode *node = ast_node(AST_INPUT, format->lexeme, token->line);
+    while (match(p, TOKEN_COMMA)) {
+        if (!expect(p, TOKEN_AMPERSAND, "expected '&' before scanf variable")) {
+            break;
+        }
+        if (expect(p, TOKEN_IDENTIFIER, "expected variable after '&'")) {
+            ast_add_child(node, ast_node(AST_IDENTIFIER, previous(p)->lexeme,
+                                         previous(p)->line));
+        }
+    }
+    expect(p, TOKEN_RPAREN, "expected ')' after scanf argument");
+    expect(p, TOKEN_SEMICOLON, "expected ';' after scanf");
     return node;
 }
 
@@ -313,6 +345,7 @@ static AstNode *for_statement(Parser *p) {
 static AstNode *statement(Parser *p) {
     if (is_value_type(peek(p)->type)) return declaration(p, true);
     if (check(p, TOKEN_PRINTF)) return print_statement(p);
+    if (check(p, TOKEN_SCANF)) return input_statement(p);
     if (check(p, TOKEN_RETURN)) return return_statement(p);
     if (check(p, TOKEN_IF)) return if_statement(p);
     if (check(p, TOKEN_WHILE)) return while_statement(p);

@@ -17,6 +17,8 @@ Supported constructs:
 - assignments and arithmetic/logical expressions
 - `if`/`else`, `while`, and `for`
 - `printf(expression);`
+- `scanf(format, &variable[, &variable]);`
+- `printf(expression);` or `printf(format, expression[, expression]);`
 - `//` and `/* ... */` comments
 
 The preprocessor supports object-like `#define` and `#undef`, quoted local
@@ -49,6 +51,8 @@ To validate, compile, and run a supported program:
 
 `--run` uses the system `cc` compiler for the final executable step. The
 backend's `printf(expression);` form is converted to a numeric line of output.
+Supported programs can read one integer, floating-point, or character value
+with `scanf` while running.
 The terminal output is labeled for all six compiler-construction phases:
 lexical analysis, syntax analysis, semantic analysis, code optimization,
 intermediate code generation, and code generation/execution.

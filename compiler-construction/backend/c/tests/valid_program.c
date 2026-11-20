@@ -1,18 +1,13 @@
-int add(int left, int right) {
-    return left + right;
-}
+#include <stdio.h>
 
-int main(void) {
-    int total = add(1, 2);
-    int i = 0;
-    bool enabled = true;
+int main() {
+    int a, b, sum;
 
-    for (i = 0; i < 3; i++) {
-        if (enabled) {
-            total = total + i;
-        }
-    }
+    scanf("%d %d", &a, &b);
 
-    printf(total);
+    sum = a + b;
+
+    printf("%d\n", sum);
+
     return 0;
 }

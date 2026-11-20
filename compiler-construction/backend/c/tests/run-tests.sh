@@ -25,13 +25,11 @@ run_valid_test() {
     assert_contains "$output" "=== 3. SEMANTIC ANALYSIS: SYMBOLS ==="
     assert_contains "$output" "=== 4. CODE OPTIMIZATION: OPTIMIZED AST ==="
     assert_contains "$output" "=== 5. INTERMEDIATE CODE GENERATION: TAC ==="
-    assert_contains "$output" "add:"
     assert_contains "$output" "main:"
-    assert_contains "$output" "param 1"
-    assert_contains "$output" "t2 = call add, 2"
+    assert_contains "$output" "scanf"
+    assert_contains "$output" "sum"
     assert_contains "$output" "return 0"
-    assert_contains "$output" "ifFalse"
-    assert_contains "$output" "print total"
+    assert_contains "$output" "print \"%d\\n\""
     pass_count=$((pass_count + 1))
 }
 
@@ -80,14 +78,26 @@ run_preprocessor_test() {
 
 run_execution_test() {
     output="$tmp_dir/run.out"
-    "$compiler" --run "$tests_dir/valid_program.c" >"$output" \
+    printf '2 3\n' | "$compiler" --run "$tests_dir/valid_program.c" >"$output" \
         2>"$tmp_dir/run.err"
-    if ! grep -Fxq "6" "$output"; then
-        printf 'Expected executed program output of 6\n' >&2
+    if ! grep -Fxq "5" "$output"; then
+        printf 'Expected executed program output of 5\n' >&2
         exit 1
     fi
     assert_contains "$output" "=== 6. CODE GENERATION AND EXECUTION ==="
     assert_contains "$output" "Status: compiled and executed successfully"
+    pass_count=$((pass_count + 1))
+}
+
+run_input_test() {
+    output="$tmp_dir/input.out"
+    printf '42\n' | "$compiler" --run "$tests_dir/input.c" >"$output" \
+        2>"$tmp_dir/input.err"
+    if ! grep -Fxq "42" "$output"; then
+        printf 'Expected scanf program output of 42\n' >&2
+        exit 1
+    fi
+    assert_contains "$output" "input \"%d\", value"
     pass_count=$((pass_count + 1))
 }
 
@@ -123,6 +133,7 @@ run_language_features_test
 run_arrays_pointers_test
 run_preprocessor_test
 run_execution_test
+run_input_test
 run_optimization_test
 run_invalid_test invalid_semantic "cannot initialize int variable with bool value"
 run_invalid_test invalid_lexical "unexpected character '@'"

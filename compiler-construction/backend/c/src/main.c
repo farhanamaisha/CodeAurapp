@@ -73,16 +73,27 @@ static char *runtime_source(const char *source) {
             size_t cursor = start;
             int nesting = 1;
             bool string = false;
+            bool has_argument_separator = false;
             while (source[cursor] != '\0' && nesting > 0) {
                 if (source[cursor] == '"' && source[cursor - 1] != '\\')
                     string = !string;
                 if (!string) {
                     if (source[cursor] == '(') nesting++;
                     if (source[cursor] == ')') nesting--;
+                    if (source[cursor] == ',' && nesting == 1)
+                        has_argument_separator = true;
                 }
                 cursor++;
             }
             if (nesting == 0) {
+                if (has_argument_separator ||
+                    (cursor > start + 1 &&
+                     source[start] == '"')) {
+                    append_text(&result, &length, &capacity,
+                                source + i, cursor - i);
+                    i = cursor;
+                    continue;
+                }
                 const char *prefix = "printf(\"%g\\n\", (double)(";
                 append_text(&result, &length, &capacity, prefix,
                             strlen(prefix));

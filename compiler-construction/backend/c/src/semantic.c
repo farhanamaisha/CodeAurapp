@@ -497,8 +497,47 @@ static void analyze_node(const AstNode *node,
             analyze_node(node->children[3], diagnostics);
             break;
         case AST_PRINT:
-            expression_type(node->children[0], diagnostics);
+            for (size_t i = 0; i < node->child_count; i++) {
+                expression_type(node->children[i], diagnostics);
+            }
             break;
+        case AST_INPUT: {
+            if (node->value == NULL) {
+                add_diagnostic(diagnostics, node->line, 1,
+                               "scanf supports only %%d, %%f, and %%c formats");
+            } else {
+                size_t conversions = 0;
+                bool format_valid = true;
+                for (const char *cursor = node->value; *cursor != '\0'; cursor++) {
+                    if (*cursor != '%') continue;
+                    cursor++;
+                    if (*cursor == '%' ) continue;
+                    if (*cursor == 'd' || *cursor == 'f' || *cursor == 'c') {
+                        conversions++;
+                    } else {
+                        format_valid = false;
+                    }
+                }
+                if (!format_valid) {
+                    add_diagnostic(diagnostics, node->line, 1,
+                                   "scanf supports only %%d, %%f, and %%c formats");
+                }
+                if (conversions != node->child_count) {
+                    add_diagnostic(diagnostics, node->line, 1,
+                                   "scanf format has %zu conversion(s), got %zu argument(s)",
+                                   conversions, node->child_count);
+                }
+            }
+            if (node->child_count > 0) {
+                Symbol *symbol = lookup(node->children[0]->value);
+                if (symbol == NULL) {
+                    add_diagnostic(diagnostics, node->line, 1,
+                                   "undeclared variable '%s'",
+                                   node->children[0]->value);
+                }
+            }
+            break;
+        }
         default:
             for (size_t i = 0; i < node->child_count; i++) {
                 analyze_node(node->children[i], diagnostics);

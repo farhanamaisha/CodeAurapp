@@ -134,8 +134,19 @@ static void node(const AstNode *ast) {
             printf("%s = %s\n", target, temporary_name);
         }
     } else if (ast->kind == AST_PRINT) {
-        char value[128]; expression(ast->children[0], value, sizeof(value));
-        printf("print %s\n", value);
+        if (ast->value == NULL) {
+            char value[128]; expression(ast->children[0], value, sizeof(value));
+            printf("print %s\n", value);
+        } else {
+            printf("print %s", ast->value);
+            for (size_t i = 0; i < ast->child_count; i++) {
+                char value[128]; expression(ast->children[i], value, sizeof(value));
+                printf(", %s", value);
+            }
+            printf("\n");
+        }
+    } else if (ast->kind == AST_INPUT) {
+        printf("input %s, %s\n", ast->value, ast->children[0]->value);
     } else if (ast->kind == AST_CALL) {
         call_arguments(ast);
         printf("call %s, %zu\n", ast->value, ast->child_count);

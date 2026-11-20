@@ -44,6 +44,7 @@ static TokenType keyword_type(const char *text) {
     if (strcmp(text, "while") == 0) return TOKEN_WHILE;
     if (strcmp(text, "for") == 0) return TOKEN_FOR;
     if (strcmp(text, "printf") == 0) return TOKEN_PRINTF;
+    if (strcmp(text, "scanf") == 0) return TOKEN_SCANF;
     if (strcmp(text, "return") == 0) return TOKEN_RETURN;
     if (strcmp(text, "true") == 0) return TOKEN_TRUE;
     if (strcmp(text, "false") == 0) return TOKEN_FALSE;
@@ -203,6 +204,7 @@ const char *token_type_name(TokenType type) {
         [TOKEN_BOOL]="BOOL", [TOKEN_CHAR]="CHAR", [TOKEN_VOID]="VOID",
         [TOKEN_IF]="IF", [TOKEN_ELSE]="ELSE",
         [TOKEN_WHILE]="WHILE", [TOKEN_FOR]="FOR", [TOKEN_PRINTF]="PRINTF",
+        [TOKEN_SCANF]="SCANF",
         [TOKEN_RETURN]="RETURN", [TOKEN_TRUE]="TRUE", [TOKEN_FALSE]="FALSE",
         [TOKEN_PLUS]="+", [TOKEN_MINUS]="-", [TOKEN_STAR]="*", [TOKEN_SLASH]="/",
         [TOKEN_PERCENT]="%", [TOKEN_ASSIGN]="=", [TOKEN_PLUS_ASSIGN]="+=",
