@@ -1,4 +1,5 @@
 
+import codegen.BytecodeGenerator;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -99,8 +100,11 @@ public class Main {
                 return;
             }
 
+            // Phase 1: Lexical Analysis
+            List<TokenInfo> tokens = tokenize(source);
             List<TokenInfo> tokens = tokenize(source);
 
+            // Phase 2: Syntax Analysis
             JavaLexer lexer = new JavaLexer(new StringReader(source));
             JavaParser parser = new JavaParser(lexer);
 
@@ -113,23 +117,61 @@ public class Main {
                 );
             }
 
+            // Phase 3: Semantic Analysis
             SemanticAnalyzer semantic = new SemanticAnalyzer();
             List<String> errors = semantic.analyze(ast);
 
             List<symboltable.Symbol> symbols =
                 semantic.getSymbolTable().getAllSymbols();
 
-            List<String> tacInstructions = List.of();
-            List<String> programOutput = List.of();
+            List<String> tacInstructions = new ArrayList<>();
+            List<String> optimizedTac = new ArrayList<>();
+            List<String> programOutput = new ArrayList<>();
             List<String> runtimeErrors = new ArrayList<>();
 
-            if (errors.isEmpty()) {
-                TACGenerator tac = new TACGenerator();
-                tacInstructions = tac.generate(ast);
+            String generatedBytecode = "";
+            String generatedClassFile = "";
+            String codeGenerationError = "";
 
+            boolean intermediateCompleted = false;
+            boolean optimizationCompleted = false;
+            boolean codeGenerationCompleted = false;
+
+            if (errors.isEmpty()) {
+
+                TACGenerator tac = new TACGenerator();
+
+                // Phase 4: Intermediate Code Generation
+                tacInstructions = tac.generate(ast);
+                intermediateCompleted = true;
+
+                // Phase 5: Code Optimization
+                optimizedTac = tac.optimize(ast);
+                optimizationCompleted = true;
+
+                // Phase 6: JVM Bytecode Generation
+                try {
+                    BytecodeGenerator generator =
+                        new BytecodeGenerator();
+
+                    BytecodeGenerator.Result result =
+                        generator.generate(optimizedTac);
+
+                    generatedBytecode = result.bytecode;
+                    generatedClassFile = result.filePath;
+                    codeGenerationCompleted = true;
+
+                } catch (Exception e) {
+                    codeGenerationError = e.getMessage() == null
+                        ? "JVM bytecode generation failed."
+                        : e.getMessage();
+                }
+
+                // Execute original AST to preserve Scanner support.
                 try {
                     ProgramExecutor executor = new ProgramExecutor();
                     programOutput = executor.execute(ast, input);
+
                 } catch (RuntimeException e) {
                     runtimeErrors.add(
                         e.getMessage() == null
@@ -145,13 +187,21 @@ public class Main {
                 symbols,
                 errors,
                 tacInstructions,
+                optimizedTac,
                 programOutput,
-                runtimeErrors
+                runtimeErrors,
+                intermediateCompleted,
+                optimizationCompleted,
+                generatedBytecode,
+                generatedClassFile,
+                codeGenerationCompleted,
+                codeGenerationError
             );
 
             sendResponse(exchange, 200, response);
 
         } catch (Exception e) {
+
             String message = e.getMessage() == null
                 ? "Internal Compiler Error: Unknown error."
                 : e.getMessage();
@@ -163,8 +213,14 @@ public class Main {
                 + "\"errorType\":" + jsonString(category) + ","
                 + "\"errors\":[" + jsonString(message) + "],"
                 + "\"tokens\":[],\"ast\":null,\"symbols\":[],"
-                + "\"tac\":[],\"programOutput\":[],"
-                + "\"runtimeErrors\":[]}";
+                + "\"tac\":[],\"optimizedTac\":[],"
+                + "\"programOutput\":[],\"runtimeErrors\":[],"
+                + "\"intermediateCompleted\":false,"
+                + "\"optimizationCompleted\":false,"
+                + "\"bytecode\":\"\","
+                + "\"generatedClassFile\":\"\","
+                + "\"codeGenerationCompleted\":false,"
+                + "\"codeGenerationError\":\"\"}";
 
             sendResponse(exchange, 200, response);
         }
@@ -416,26 +472,37 @@ public class Main {
     }
 
     private static String classifyError(String message) {
+
         String lower = message.toLowerCase();
 
-        if (lower.contains("lexical") || lower.contains("unexpected character")) {
+        if (lower.contains("lexical")
+                || lower.contains("unexpected character")) {
             return "Lexical Error";
         }
-        if (lower.contains("syntax") || lower.contains("parse")
+
+        if (lower.contains("syntax")
+                || lower.contains("parse")
                 || lower.contains("unexpected token")
                 || lower.contains("can't recover")) {
             return "Syntax Error";
         }
-        if (lower.contains("semantic") || lower.contains("undeclared")
+
+        if (lower.contains("semantic")
+                || lower.contains("undeclared")
+                || lower.contains("not declared")
                 || lower.contains("already declared")
-                || lower.contains("type mismatch")) {
+                || lower.contains("type mismatch")
+                || lower.contains("incompatible")) {
             return "Semantic Error";
         }
-        if (lower.contains("runtime") || lower.contains("division by zero")
+
+        if (lower.contains("runtime")
+                || lower.contains("division by zero")
                 || lower.contains("no input available")
                 || lower.contains("invalid input")) {
             return "Runtime Error";
         }
+
         return "Compiler Error";
     }
 
@@ -446,13 +513,15 @@ public class Main {
         JavaLexer lexer = new JavaLexer(new StringReader(source));
 
         while (true) {
+
             Symbol token = lexer.next_token();
 
             if (token.sym == sym.EOF) break;
 
             String tokenName = "UNKNOWN";
 
-            if (token.sym >= 0 && token.sym < sym.terminalNames.length) {
+            if (token.sym >= 0
+                    && token.sym < sym.terminalNames.length) {
                 tokenName = sym.terminalNames[token.sym];
             }
 
@@ -476,14 +545,24 @@ public class Main {
             List<symboltable.Symbol> symbols,
             List<String> errors,
             List<String> tac,
+            List<String> optimizedTac,
             List<String> programOutput,
-            List<String> runtimeErrors) {
+            List<String> runtimeErrors,
+            boolean intermediateCompleted,
+            boolean optimizationCompleted,
+            String bytecode,
+            String generatedClassFile,
+            boolean codeGenerationCompleted,
+            String codeGenerationError) {
 
         StringBuilder json = new StringBuilder();
 
         json.append("{\"success\":")
-            .append(errors.isEmpty() && runtimeErrors.isEmpty())
-            .append(",\"tokens\":[");
+            .append(errors.isEmpty()
+                && runtimeErrors.isEmpty()
+                && codeGenerationError.isEmpty());
+
+        json.append(",\"tokens\":[");
 
         for (int i = 0; i < tokens.size(); i++) {
             TokenInfo token = tokens.get(i);
@@ -520,6 +599,27 @@ public class Main {
         json.append(",\"tac\":");
         appendStringList(json, tac);
 
+        json.append(",\"optimizedTac\":");
+        appendStringList(json, optimizedTac);
+
+        json.append(",\"intermediateCompleted\":")
+            .append(intermediateCompleted);
+
+        json.append(",\"optimizationCompleted\":")
+            .append(optimizationCompleted);
+
+        json.append(",\"bytecode\":")
+            .append(jsonString(bytecode));
+
+        json.append(",\"generatedClassFile\":")
+            .append(jsonString(generatedClassFile));
+
+        json.append(",\"codeGenerationCompleted\":")
+            .append(codeGenerationCompleted);
+
+        json.append(",\"codeGenerationError\":")
+            .append(jsonString(codeGenerationError));
+
         json.append(",\"programOutput\":");
         appendStringList(json, programOutput);
 
@@ -532,6 +632,7 @@ public class Main {
     }
 
     private static void appendAst(StringBuilder json, ASTNode node) {
+
         if (node == null) {
             json.append("null");
             return;
@@ -541,7 +642,8 @@ public class Main {
             .append("\"type\":").append(jsonString(node.getType()))
             .append(",\"value\":")
             .append(node.getValue() == null
-                ? "null" : jsonString(node.getValue()))
+                ? "null"
+                : jsonString(node.getValue()))
             .append(",\"line\":").append(node.getLine())
             .append(",\"children\":[");
 
@@ -569,23 +671,40 @@ public class Main {
     }
 
     private static String jsonString(String value) {
+
         if (value == null) return "null";
 
         StringBuilder result = new StringBuilder("\"");
 
         for (char c : value.toCharArray()) {
-            switch (c) {
-                case '"': result.append("\\\""); break;
-                case '\\': result.append("\\\\"); break;
-                case '\n': result.append("\\n"); break;
-                case '\r': result.append("\\r"); break;
-                case '\t': result.append("\\t"); break;
-                case '\b': result.append("\\b"); break;
-                case '\f': result.append("\\f"); break;
 
+            switch (c) {
+                case '"':
+                    result.append("\\\"");
+                    break;
+                case '\\':
+                    result.append("\\\\");
+                    break;
+                case '\n':
+                    result.append("\\n");
+                    break;
+                case '\r':
+                    result.append("\\r");
+                    break;
+                case '\t':
+                    result.append("\\t");
+                    break;
+                case '\b':
+                    result.append("\\b");
+                    break;
+                case '\f':
+                    result.append("\\f");
+                    break;
                 default:
                     if (c < 32) {
-                        result.append(String.format("\\u%04x", (int) c));
+                        result.append(
+                            String.format("\\u%04x", (int) c)
+                        );
                     } else {
                         result.append(c);
                     }
@@ -595,7 +714,9 @@ public class Main {
         return result.append("\"").toString();
     }
 
-    private static String extractJsonString(String body, String field) {
+    private static String extractJsonString(
+            String body, String field) {
+
         String key = "\"" + field + "\"";
         int keyIndex = body.indexOf(key);
 
@@ -603,42 +724,73 @@ public class Main {
             return field.equals("input") ? "" : null;
         }
 
-        int index = body.indexOf(':', keyIndex + key.length()) + 1;
+        int colonIndex = body.indexOf(
+            ':', keyIndex + key.length()
+        );
+
+        if (colonIndex < 0) {
+            throw new RuntimeException(
+                "Invalid request: missing value for " + field + "."
+            );
+        }
+
+        int index = colonIndex + 1;
 
         while (index < body.length()
                 && Character.isWhitespace(body.charAt(index))) {
             index++;
         }
 
-        if (index >= body.length() || body.charAt(index) != '"') {
+        if (index >= body.length()
+                || body.charAt(index) != '"') {
             throw new RuntimeException(
                 "Invalid request: " + field + " must be a string."
             );
         }
 
         index++;
+
         StringBuilder value = new StringBuilder();
 
         while (index < body.length()) {
+
             char c = body.charAt(index++);
 
-            if (c == '"') return value.toString();
+            if (c == '"') {
+                return value.toString();
+            }
 
             if (c == '\\') {
+
                 if (index >= body.length()) break;
 
                 char escaped = body.charAt(index++);
 
                 switch (escaped) {
-                    case 'n': value.append('\n'); break;
-                    case 'r': value.append('\r'); break;
-                    case 't': value.append('\t'); break;
-                    case 'b': value.append('\b'); break;
-                    case 'f': value.append('\f'); break;
-                    case '"': value.append('"'); break;
-                    case '\\': value.append('\\'); break;
-                    case '/': value.append('/'); break;
-
+                    case 'n':
+                        value.append('\n');
+                        break;
+                    case 'r':
+                        value.append('\r');
+                        break;
+                    case 't':
+                        value.append('\t');
+                        break;
+                    case 'b':
+                        value.append('\b');
+                        break;
+                    case 'f':
+                        value.append('\f');
+                        break;
+                    case '"':
+                        value.append('"');
+                        break;
+                    case '\\':
+                        value.append('\\');
+                        break;
+                    case '/':
+                        value.append('/');
+                        break;
                     case 'u':
                         if (index + 4 > body.length()) {
                             throw new RuntimeException(
@@ -658,12 +810,12 @@ public class Main {
 
                         index += 4;
                         break;
-
                     default:
                         throw new RuntimeException(
                             "Invalid JSON escape in request."
                         );
                 }
+
             } else {
                 value.append(c);
             }
@@ -678,17 +830,20 @@ public class Main {
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Origin", "*"
         );
+
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Methods", "POST, OPTIONS"
         );
+
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Headers", "Content-Type"
         );
     }
 
     private static void sendResponse(
-            HttpExchange exchange, int status, String response)
-            throws IOException {
+            HttpExchange exchange,
+            int status,
+            String response) throws IOException {
 
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
 

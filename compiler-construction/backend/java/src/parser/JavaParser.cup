@@ -5,8 +5,12 @@ import java_cup.runtime.*;
 import ast.ASTNode;
 
 parser code {:
-    private ASTNode node(String type, String value) {
-        return new ASTNode(type, value, 1);
+    private ASTNode node(String type, String value, int line) {
+        return new ASTNode(type, value, line);
+    }
+
+    private int lineOf(int position) {
+        return position >= 0 ? position + 1 : 1;
     }
 
     private String javaType(String type) {
@@ -22,7 +26,7 @@ parser code {:
             : "'" + token.value + "'";
 
         System.err.println(
-            "Syntax Error at line " + (token.left + 1) +
+            "Syntax Error at line " + lineOf(token.left) +
             ": unexpected token " + unexpected
         );
     }
@@ -31,7 +35,7 @@ parser code {:
     public void unrecovered_syntax_error(Symbol token) throws java.lang.Exception {
         syntax_error(token);
         throw new Exception(
-            "Syntax Error at line " + (token.left + 1) +
+            "Syntax Error at line " + lineOf(token.left) +
             ": unable to recover from this syntax error."
         );
     }
@@ -106,22 +110,22 @@ start with program;
 program ::=
     class_decl:c
     {:
-        ASTNode root = new ASTNode("PROGRAM", null, 1);
+        ASTNode root = new ASTNode("PROGRAM", null, lineOf(cleft));
         root.addChild(c);
         RESULT = root;
     :}
     ;
 
 class_decl ::=
-    PUBLIC CLASS IDENTIFIER:name LBRACE main_method:m RBRACE
+    PUBLIC:pub CLASS IDENTIFIER:name LBRACE main_method:m RBRACE
     {: RESULT = m; :}
     |
-    CLASS IDENTIFIER:name LBRACE main_method:m RBRACE
+    CLASS:classToken IDENTIFIER:name LBRACE main_method:m RBRACE
     {: RESULT = m; :}
     ;
 
 main_method ::=
-    PUBLIC STATIC VOID MAIN
+    PUBLIC:pub STATIC VOID MAIN
     LPAREN STRING LBRACKET RBRACKET IDENTIFIER RPAREN
     block:b
     {: RESULT = b; :}
@@ -132,8 +136,16 @@ main_method ::=
    ========================================================= */
 
 block ::=
-    LBRACE statement_list:s RBRACE
-    {: RESULT = s; :}
+    LBRACE:open statement_list:s RBRACE
+    {:
+        ASTNode result = new ASTNode("BLOCK", null, lineOf(openleft));
+
+        for (ASTNode child : s.getChildren()) {
+            result.addChild(child);
+        }
+
+        RESULT = result;
+    :}
     ;
 
 statement_list ::=
@@ -202,14 +214,14 @@ type_name ::=
 declaration ::=
     type_name:t IDENTIFIER:name SEMICOLON
     {:
-        RESULT = new ASTNode("DECLARATION", javaType(t), 1);
-        RESULT.addChild(node("IDENTIFIER", name));
+        RESULT = new ASTNode("DECLARATION", javaType(t), lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
     :}
     |
     type_name:t IDENTIFIER:name ASSIGN expression:e SEMICOLON
     {:
-        RESULT = new ASTNode("DECLARATION", javaType(t), 1);
-        RESULT.addChild(node("IDENTIFIER", name));
+        RESULT = new ASTNode("DECLARATION", javaType(t), lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
         RESULT.addChild(e);
     :}
     ;
@@ -217,21 +229,20 @@ declaration ::=
 declaration_no_semi ::=
     type_name:t IDENTIFIER:name
     {:
-        RESULT = new ASTNode("DECLARATION", javaType(t), 1);
-        RESULT.addChild(node("IDENTIFIER", name));
+        RESULT = new ASTNode("DECLARATION", javaType(t), lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
     :}
     |
     type_name:t IDENTIFIER:name ASSIGN expression:e
     {:
-        RESULT = new ASTNode("DECLARATION", javaType(t), 1);
-        RESULT.addChild(node("IDENTIFIER", name));
+        RESULT = new ASTNode("DECLARATION", javaType(t), lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
         RESULT.addChild(e);
     :}
     ;
 
 /* =========================================================
    SCANNER INPUT
-   Supports:
    Scanner sc = new Scanner(System.in);
    ========================================================= */
 
@@ -239,7 +250,7 @@ scanner_declaration ::=
     SCANNER IDENTIFIER:name ASSIGN NEW SCANNER
     LPAREN SYSTEM DOT IN RPAREN SEMICOLON
     {:
-        RESULT = new ASTNode("SCANNER_DECL", name, 1);
+        RESULT = new ASTNode("SCANNER_DECL", name, lineOf(nameleft));
     :}
     ;
 
@@ -250,7 +261,7 @@ scanner_declaration ::=
 assignment ::=
     IDENTIFIER:name ASSIGN expression:e SEMICOLON
     {:
-        RESULT = new ASTNode("ASSIGNMENT", name, 1);
+        RESULT = new ASTNode("ASSIGNMENT", name, lineOf(nameleft));
         RESULT.addChild(e);
     :}
     ;
@@ -258,7 +269,7 @@ assignment ::=
 assignment_no_semi ::=
     IDENTIFIER:name ASSIGN expression:e
     {:
-        RESULT = new ASTNode("ASSIGNMENT", name, 1);
+        RESULT = new ASTNode("ASSIGNMENT", name, lineOf(nameleft));
         RESULT.addChild(e);
     :}
     ;
@@ -270,22 +281,24 @@ assignment_no_semi ::=
 increment_statement ::=
     IDENTIFIER:name INCREMENT
     {:
-        RESULT = new ASTNode("ASSIGNMENT", name, 1);
+        int line = lineOf(nameleft);
+        RESULT = new ASTNode("ASSIGNMENT", name, line);
 
-        ASTNode binary = new ASTNode("BINARY", "+", 1);
-        binary.addChild(node("IDENTIFIER", name));
-        binary.addChild(node("LITERAL", "1"));
+        ASTNode binary = new ASTNode("BINARY", "+", line);
+        binary.addChild(node("IDENTIFIER", name, line));
+        binary.addChild(node("LITERAL", "1", line));
 
         RESULT.addChild(binary);
     :}
     |
     IDENTIFIER:name DECREMENT
     {:
-        RESULT = new ASTNode("ASSIGNMENT", name, 1);
+        int line = lineOf(nameleft);
+        RESULT = new ASTNode("ASSIGNMENT", name, line);
 
-        ASTNode binary = new ASTNode("BINARY", "-", 1);
-        binary.addChild(node("IDENTIFIER", name));
-        binary.addChild(node("LITERAL", "1"));
+        ASTNode binary = new ASTNode("BINARY", "-", line);
+        binary.addChild(node("IDENTIFIER", name, line));
+        binary.addChild(node("LITERAL", "1", line));
 
         RESULT.addChild(binary);
     :}
@@ -296,16 +309,16 @@ increment_statement ::=
    ========================================================= */
 
 print_statement ::=
-    SYSTEM DOT OUT DOT PRINTLN
+    SYSTEM:sys DOT OUT DOT PRINTLN
     LPAREN expression:e RPAREN SEMICOLON
     {:
-        RESULT = new ASTNode("PRINT", null, 1);
+        RESULT = new ASTNode("PRINT", null, lineOf(sysleft));
         RESULT.addChild(e);
     :}
     |
-    PRINT LPAREN expression:e RPAREN SEMICOLON
+    PRINT:printToken LPAREN expression:e RPAREN SEMICOLON
     {:
-        RESULT = new ASTNode("PRINT", null, 1);
+        RESULT = new ASTNode("PRINT", null, lineOf(printTokenleft));
         RESULT.addChild(e);
     :}
     ;
@@ -315,18 +328,18 @@ print_statement ::=
    ========================================================= */
 
 if_statement ::=
-    IF LPAREN expression:e RPAREN statement:s
+    IF:ifToken LPAREN expression:e RPAREN statement:s
     {:
-        RESULT = new ASTNode("IF", null, 1);
+        RESULT = new ASTNode("IF", null, lineOf(ifTokenleft));
         RESULT.addChild(e);
         RESULT.addChild(s);
     :}
     %prec IFX
     |
-    IF LPAREN expression:e RPAREN statement:s
+    IF:ifToken LPAREN expression:e RPAREN statement:s
     ELSE statement:other
     {:
-        RESULT = new ASTNode("IF", null, 1);
+        RESULT = new ASTNode("IF", null, lineOf(ifTokenleft));
         RESULT.addChild(e);
         RESULT.addChild(s);
         RESULT.addChild(other);
@@ -338,9 +351,9 @@ if_statement ::=
    ========================================================= */
 
 while_statement ::=
-    WHILE LPAREN expression:e RPAREN statement:s
+    WHILE:whileToken LPAREN expression:e RPAREN statement:s
     {:
-        RESULT = new ASTNode("WHILE", null, 1);
+        RESULT = new ASTNode("WHILE", null, lineOf(whileTokenleft));
         RESULT.addChild(e);
         RESULT.addChild(s);
     :}
@@ -351,23 +364,23 @@ while_statement ::=
    ========================================================= */
 
 for_statement ::=
-    FOR LPAREN for_init:i SEMICOLON
+    FOR:forToken LPAREN for_init:i SEMICOLON
     expression:e SEMICOLON
     for_update:u RPAREN statement:s
     {:
-        RESULT = new ASTNode("FOR", null, 1);
+        RESULT = new ASTNode("FOR", null, lineOf(forTokenleft));
         RESULT.addChild(i);
         RESULT.addChild(e);
         RESULT.addChild(u);
         RESULT.addChild(s);
     :}
     |
-    FOR LPAREN for_init:i SEMICOLON
+    FOR:forToken LPAREN for_init:i SEMICOLON
     SEMICOLON for_update:u RPAREN statement:s
     {:
-        ASTNode result = new ASTNode("FOR", null, 1);
+        ASTNode result = new ASTNode("FOR", null, lineOf(forTokenleft));
         result.addChild(i);
-        result.addChild(node("EMPTY", null));
+        result.addChild(node("EMPTY", null, lineOf(forTokenleft)));
         result.addChild(u);
         result.addChild(s);
         RESULT = result;
@@ -381,7 +394,7 @@ for_init ::=
     assignment_no_semi:a
     {: RESULT = a; :}
     |
-    {: RESULT = node("EMPTY", null); :}
+    {: RESULT = node("EMPTY", null, 1); :}
     ;
 
 for_update ::=
@@ -391,7 +404,7 @@ for_update ::=
     increment_statement:i
     {: RESULT = i; :}
     |
-    {: RESULT = node("EMPTY", null); :}
+    {: RESULT = node("EMPTY", null, 1); :}
     ;
 
 /* =========================================================
@@ -405,9 +418,9 @@ expression ::=
 
 /* Logical OR */
 logical_or ::=
-    logical_or:l OR logical_and:r
+    logical_or:l OR:op logical_and:r
     {:
-        RESULT = new ASTNode("BINARY", "||", 1);
+        RESULT = new ASTNode("BINARY", "||", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -418,9 +431,9 @@ logical_or ::=
 
 /* Logical AND */
 logical_and ::=
-    logical_and:l AND equality:r
+    logical_and:l AND:op equality:r
     {:
-        RESULT = new ASTNode("BINARY", "&&", 1);
+        RESULT = new ASTNode("BINARY", "&&", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -431,16 +444,16 @@ logical_and ::=
 
 /* Equality */
 equality ::=
-    equality:l EQUAL comparison:r
+    equality:l EQUAL:op comparison:r
     {:
-        RESULT = new ASTNode("BINARY", "==", 1);
+        RESULT = new ASTNode("BINARY", "==", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    equality:l NOT_EQUAL comparison:r
+    equality:l NOT_EQUAL:op comparison:r
     {:
-        RESULT = new ASTNode("BINARY", "!=", 1);
+        RESULT = new ASTNode("BINARY", "!=", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -451,30 +464,30 @@ equality ::=
 
 /* Comparison */
 comparison ::=
-    comparison:l LESS term:r
+    comparison:l LESS:op term:r
     {:
-        RESULT = new ASTNode("BINARY", "<", 1);
+        RESULT = new ASTNode("BINARY", "<", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    comparison:l GREATER term:r
+    comparison:l GREATER:op term:r
     {:
-        RESULT = new ASTNode("BINARY", ">", 1);
+        RESULT = new ASTNode("BINARY", ">", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    comparison:l LESS_EQUAL term:r
+    comparison:l LESS_EQUAL:op term:r
     {:
-        RESULT = new ASTNode("BINARY", "<=", 1);
+        RESULT = new ASTNode("BINARY", "<=", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    comparison:l GREATER_EQUAL term:r
+    comparison:l GREATER_EQUAL:op term:r
     {:
-        RESULT = new ASTNode("BINARY", ">=", 1);
+        RESULT = new ASTNode("BINARY", ">=", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -485,16 +498,16 @@ comparison ::=
 
 /* Addition and subtraction */
 term ::=
-    term:l PLUS factor:r
+    term:l PLUS:op factor:r
     {:
-        RESULT = new ASTNode("BINARY", "+", 1);
+        RESULT = new ASTNode("BINARY", "+", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    term:l MINUS factor:r
+    term:l MINUS:op factor:r
     {:
-        RESULT = new ASTNode("BINARY", "-", 1);
+        RESULT = new ASTNode("BINARY", "-", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -505,23 +518,23 @@ term ::=
 
 /* Multiplication, division and modulo */
 factor ::=
-    factor:l MULTIPLY unary:r
+    factor:l MULTIPLY:op unary:r
     {:
-        RESULT = new ASTNode("BINARY", "*", 1);
+        RESULT = new ASTNode("BINARY", "*", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    factor:l DIVIDE unary:r
+    factor:l DIVIDE:op unary:r
     {:
-        RESULT = new ASTNode("BINARY", "/", 1);
+        RESULT = new ASTNode("BINARY", "/", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
     |
-    factor:l MODULO unary:r
+    factor:l MODULO:op unary:r
     {:
-        RESULT = new ASTNode("BINARY", "%", 1);
+        RESULT = new ASTNode("BINARY", "%", lineOf(opleft));
         RESULT.addChild(l);
         RESULT.addChild(r);
     :}
@@ -535,16 +548,16 @@ factor ::=
    ========================================================= */
 
 unary ::=
-    NOT unary:e
+    NOT:op unary:e
     {:
-        RESULT = new ASTNode("UNARY", "!", 1);
+        RESULT = new ASTNode("UNARY", "!", lineOf(opleft));
         RESULT.addChild(e);
     :}
     %prec NOT
     |
-    MINUS unary:e
+    MINUS:op unary:e
     {:
-        RESULT = new ASTNode("UNARY", "-", 1);
+        RESULT = new ASTNode("UNARY", "-", lineOf(opleft));
         RESULT.addChild(e);
     :}
     %prec UMINUS
@@ -555,7 +568,7 @@ unary ::=
 
 /* =========================================================
    PRIMARY EXPRESSIONS
-   Includes Scanner input methods:
+   Scanner methods:
    sc.nextInt()
    sc.nextFloat()
    sc.nextLine()
@@ -563,33 +576,43 @@ unary ::=
 
 primary ::=
     IDENTIFIER:name
-    {: RESULT = node("IDENTIFIER", name); :}
+    {:
+        RESULT = node("IDENTIFIER", name, lineOf(nameleft));
+    :}
     |
     INTEGER_LITERAL:value
-    {: RESULT = node("LITERAL", value); :}
+    {:
+        RESULT = node("LITERAL", value, lineOf(valueleft));
+    :}
     |
     FLOAT_LITERAL:value
-    {: RESULT = node("LITERAL", value); :}
+    {:
+        RESULT = node("LITERAL", value, lineOf(valueleft));
+    :}
     |
     BOOLEAN_LITERAL:value
-    {: RESULT = node("LITERAL", value); :}
+    {:
+        RESULT = node("LITERAL", value, lineOf(valueleft));
+    :}
     |
     STRING_LITERAL:value
-    {: RESULT = node("LITERAL", value); :}
-    |
-    IDENTIFIER:name DOT NEXT_INT LPAREN RPAREN
     {:
-        RESULT = new ASTNode("INPUT", "int", 1);
+        RESULT = node("LITERAL", value, lineOf(valueleft));
     :}
     |
-    IDENTIFIER:name DOT NEXT_FLOAT LPAREN RPAREN
+    IDENTIFIER:name DOT NEXT_INT:method LPAREN RPAREN
     {:
-        RESULT = new ASTNode("INPUT", "float", 1);
+        RESULT = new ASTNode("INPUT", "int", lineOf(nameleft));
     :}
     |
-    IDENTIFIER:name DOT NEXT_LINE LPAREN RPAREN
+    IDENTIFIER:name DOT NEXT_FLOAT:method LPAREN RPAREN
     {:
-        RESULT = new ASTNode("INPUT", "String", 1);
+        RESULT = new ASTNode("INPUT", "float", lineOf(nameleft));
+    :}
+    |
+    IDENTIFIER:name DOT NEXT_LINE:method LPAREN RPAREN
+    {:
+        RESULT = new ASTNode("INPUT", "String", lineOf(nameleft));
     :}
     |
     LPAREN expression:e RPAREN
