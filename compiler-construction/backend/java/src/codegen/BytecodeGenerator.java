@@ -2,6 +2,7 @@
 package codegen;
 
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.util.TraceClassVisitor;
@@ -31,12 +32,14 @@ public class BytecodeGenerator {
     }
 
     private final Map<String, Integer> variables = new HashMap<>();
+    private final Map<String, Label> labels = new HashMap<>();
     private int nextSlot = 1;
     private MethodVisitor method;
 
     public Result generate(List<String> instructions) throws Exception {
 
         variables.clear();
+        labels.clear();
         nextSlot = 1;
 
         ClassWriter writer = new ClassWriter(
@@ -78,6 +81,16 @@ public class BytecodeGenerator {
         );
 
         method.visitCode();
+
+        for (String instruction : instructions) {
+            String line = instruction.trim();
+            if (line.endsWith(":")) {
+                labels.put(
+                    line.substring(0, line.length() - 1),
+                    new Label()
+                );
+            }
+        }
 
         for (String instruction : instructions) {
             compileInstruction(instruction.trim());
@@ -146,6 +159,35 @@ public class BytecodeGenerator {
 
         if (line.isEmpty()) return;
 
+        if (line.endsWith(":")) {
+            method.visitLabel(labels.get(
+                line.substring(0, line.length() - 1)
+            ));
+            return;
+        }
+
+        Matcher conditional = Pattern.compile(
+            "^ifFalse\\s+(.+)\\s+goto\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)$"
+        ).matcher(line);
+
+        if (conditional.matches()) {
+            emitValue(conditional.group(1).trim());
+            method.visitJumpInsn(
+                IFEQ,
+                labels.get(conditional.group(2))
+            );
+            return;
+        }
+
+        Matcher jump = Pattern.compile(
+            "^goto\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)$"
+        ).matcher(line);
+
+        if (jump.matches()) {
+            method.visitJumpInsn(GOTO, labels.get(jump.group(1)));
+            return;
+        }
+
         if (line.startsWith("print ")) {
             String expression = line.substring(6).trim();
 
@@ -170,7 +212,7 @@ public class BytecodeGenerator {
         }
 
         Matcher assignment = Pattern.compile(
-            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(.+)$"
+            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(.*)$"
         ).matcher(line);
 
         if (!assignment.matches()) {
@@ -186,8 +228,17 @@ public class BytecodeGenerator {
             "^(.+?)\\s*([+\\-*/])\\s*(.+)$"
         ).matcher(expression);
 
-        if (arithmetic.matches()) {
+        Matcher comparison = Pattern.compile(
+            "^(.+?)\\s*(==|!=|<=|>=|<|>)\\s*(.+)$"
+        ).matcher(expression);
 
+        if (comparison.matches()) {
+            emitComparison(
+                comparison.group(1).trim(),
+                comparison.group(2),
+                comparison.group(3).trim()
+            );
+        } else if (arithmetic.matches()) {
             boolean leftInteger = emitValue(
                 arithmetic.group(1).trim()
             );
@@ -229,9 +280,56 @@ public class BytecodeGenerator {
         method.visitVarInsn(ISTORE, slot);
     }
 
+    private void emitComparison(
+            String left, String operator, String right) {
+
+        emitValue(left);
+        emitValue(right);
+
+        int opcode;
+        switch (operator) {
+            case "==":
+                opcode = IF_ICMPEQ;
+                break;
+            case "!=":
+                opcode = IF_ICMPNE;
+                break;
+            case "<":
+                opcode = IF_ICMPLT;
+                break;
+            case "<=":
+                opcode = IF_ICMPLE;
+                break;
+            case ">":
+                opcode = IF_ICMPGT;
+                break;
+            case ">=":
+                opcode = IF_ICMPGE;
+                break;
+            default:
+                throw new IllegalArgumentException(
+                    "Unsupported comparison operator: " + operator
+                );
+        }
+
+        Label trueLabel = new Label();
+        Label endLabel = new Label();
+        method.visitJumpInsn(opcode, trueLabel);
+        method.visitInsn(ICONST_0);
+        method.visitJumpInsn(GOTO, endLabel);
+        method.visitLabel(trueLabel);
+        method.visitInsn(ICONST_1);
+        method.visitLabel(endLabel);
+    }
+
     private boolean emitValue(String expression) {
 
         expression = expression.trim();
+
+        if (expression.isEmpty()) {
+            method.visitInsn(ICONST_0);
+            return true;
+        }
 
         if (expression.matches("-?\\d+")) {
             int value = Integer.parseInt(expression);

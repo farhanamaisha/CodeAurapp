@@ -102,7 +102,7 @@ public class Main {
 
             // Phase 1: Lexical Analysis
             List<TokenInfo> tokens = tokenize(source);
-            List<TokenInfo> tokens = tokenize(source);
+          
 
             // Phase 2: Syntax Analysis
             JavaLexer lexer = new JavaLexer(new StringReader(source));

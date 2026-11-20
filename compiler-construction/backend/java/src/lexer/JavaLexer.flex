@@ -51,6 +51,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 /* Java class and main keywords */
 
 <YYINITIAL> "class"            { return keyword(sym.CLASS); }
+<YYINITIAL> "import"            { return keyword(sym.IMPORT); }
 <YYINITIAL> "public"           { return keyword(sym.PUBLIC); }
 <YYINITIAL> "private"          { return keyword(sym.PRIVATE); }
 <YYINITIAL> "protected"        { return keyword(sym.PROTECTED); }
@@ -64,6 +65,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "float"            { return keyword(sym.FLOAT); }
 <YYINITIAL> "double"           { return keyword(sym.DOUBLE); }
 <YYINITIAL> "boolean"          { return keyword(sym.BOOLEAN); }
+<YYINITIAL> "bool"              { return keyword(sym.BOOLEAN); }
 <YYINITIAL> "String"           { return keyword(sym.STRING); }
 
 /* Control flow */

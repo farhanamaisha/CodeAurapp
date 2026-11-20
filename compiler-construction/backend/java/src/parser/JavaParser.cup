@@ -10,7 +10,8 @@ parser code {:
     }
 
     private int lineOf(int position) {
-        return position >= 0 ? position + 1 : 1;
+        // JavaLexer stores source lines as 1-based positions in Symbol.left.
+        return position > 0 ? position : 1;
     }
 
     private String javaType(String type) {
@@ -45,7 +46,7 @@ parser code {:
 terminal IFX, UMINUS;
 
 /* Java class and method keywords */
-terminal CLASS, PUBLIC, PRIVATE, PROTECTED, STATIC, VOID, MAIN;
+terminal CLASS, PUBLIC, PRIVATE, PROTECTED, STATIC, VOID, MAIN, IMPORT;
 
 /* Data types */
 terminal INT, FLOAT, DOUBLE, BOOLEAN, STRING;
@@ -77,6 +78,7 @@ terminal String STRING_LITERAL, BOOLEAN_LITERAL;
 
 /* Non-terminals */
 non terminal ASTNode program, class_decl, main_method;
+non terminal ASTNode import_declaration;
 non terminal ASTNode block, statement_list, statement;
 non terminal ASTNode declaration, declaration_no_semi;
 non terminal ASTNode assignment, assignment_no_semi;
@@ -89,6 +91,7 @@ non terminal ASTNode equality, comparison, term, factor, unary, primary;
 non terminal ASTNode increment_statement;
 
 non terminal String type_name;
+non terminal String qualified_name;
 
 /* Operator precedence */
 precedence nonassoc IFX;
@@ -108,12 +111,35 @@ start with program;
    ========================================================= */
 
 program ::=
-    class_decl:c
+    import_declaration:i class_decl:c
     {:
         ASTNode root = new ASTNode("PROGRAM", null, lineOf(cleft));
         root.addChild(c);
         RESULT = root;
     :}
+    ;
+
+import_declaration ::=
+    IMPORT qualified_name SEMICOLON
+    {: RESULT = new ASTNode("IMPORT", null, 1); :}
+    |
+    {:
+        RESULT = new ASTNode("IMPORTS", null, 1);
+    :}
+    ;
+
+qualified_name ::=
+    IDENTIFIER:name
+    {: RESULT = name; :}
+    |
+    SCANNER
+    {: RESULT = "Scanner"; :}
+    |
+    qualified_name:q DOT IDENTIFIER:name
+    {: RESULT = q + "." + name; :}
+    |
+    qualified_name:q DOT SCANNER
+    {: RESULT = q + ".Scanner"; :}
     ;
 
 class_decl ::=
