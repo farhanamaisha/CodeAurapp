@@ -257,7 +257,7 @@ export default function App() {
                         title="Intermediate Code Generation"
                         status={result.tac ? "Completed" : "Not completed"}
                     >
-                        {result.tac?.length ? (
+                        {result.tac?.length > 0 ? (
                             <pre>{result.tac.join("\n")}</pre>
                         ) : (
                             <p>No intermediate code generated.</p>
@@ -267,21 +267,33 @@ export default function App() {
                     <Phase
                         number="5"
                         title="Code Optimization"
-                        status="Not implemented"
+                        status={result.optimized_tac ? "Completed" : "Not implemented"}
                     >
-                        <p>
-                            Optimization phase is pending backend implementation.
-                        </p>
+                        {result.optimized_tac ? (
+                            <pre>
+                                {result.optimized_tac.length > 0
+                                    ? result.optimized_tac.join("\n")
+                                    : "No optimized TAC generated."}
+                            </pre>
+                        ) : (
+                            <p>Optimization phase is pending backend implementation.</p>
+                        )}
                     </Phase>
 
                     <Phase
                         number="6"
                         title="Code Generation"
-                        status="Not implemented"
+                        status={result.code ? "Completed" : "Not implemented"}
                     >
-                        <p>
-                            Target code generation is pending backend implementation.
-                        </p>
+                        {result.code ? (
+                            <pre>
+                                {result.code.length > 0
+                                    ? result.code.join("\n")
+                                    : "No generated code."}
+                            </pre>
+                        ) : (
+                            <p>Target code generation is pending backend implementation.</p>
+                        )}
                     </Phase>
                 </section>
             )}

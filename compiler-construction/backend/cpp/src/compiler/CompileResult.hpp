@@ -17,6 +17,8 @@ struct CompileResult {
     std::vector<Symbol> symbols;
     std::vector<std::string> errors;
     std::vector<std::string> tac;
+    std::vector<std::string> optimizedTac;
+    std::vector<std::string> code;
 };
 
 }  // namespace compiler_cpp

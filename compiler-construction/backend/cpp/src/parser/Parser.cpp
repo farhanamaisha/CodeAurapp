@@ -131,6 +131,10 @@ std::shared_ptr<ASTNode> Parser::parseStatement() {
 }
 
 std::shared_ptr<ASTNode> Parser::parseDeclaration() {
+    return parseDeclaration(true);
+}
+
+std::shared_ptr<ASTNode> Parser::parseDeclaration(bool consumeSemicolon) {
     std::string type = parseTypeName();
     auto identifier = consume(TokenType::IDENTIFIER, "expected identifier in declaration");
     auto declaration = makeNode("DECLARATION", type, identifier.line);
@@ -140,16 +144,24 @@ std::shared_ptr<ASTNode> Parser::parseDeclaration() {
         declaration->addChild(parseExpression());
     }
 
-    consume(TokenType::SEMICOLON, "expected ';' after declaration");
+    if (consumeSemicolon) {
+        consume(TokenType::SEMICOLON, "expected ';' after declaration");
+    }
     return declaration;
 }
 
 std::shared_ptr<ASTNode> Parser::parseAssignment() {
+    return parseAssignment(true);
+}
+
+std::shared_ptr<ASTNode> Parser::parseAssignment(bool consumeSemicolon) {
     Token identifier = consume(TokenType::IDENTIFIER, "expected identifier in assignment");
     consume(TokenType::ASSIGN, "expected '=' in assignment");
     auto assignment = makeNode("ASSIGNMENT", identifier.lexeme, identifier.line);
     assignment->addChild(parseExpression());
-    consume(TokenType::SEMICOLON, "expected ';' after assignment");
+    if (consumeSemicolon) {
+        consume(TokenType::SEMICOLON, "expected ';' after assignment");
+    }
     return assignment;
 }
 
@@ -183,9 +195,9 @@ std::shared_ptr<ASTNode> Parser::parseForStatement() {
 
     if (!check(TokenType::SEMICOLON)) {
         if (check(TokenType::INT) || check(TokenType::FLOAT) || check(TokenType::BOOL)) {
-            forNode->addChild(parseDeclaration());
+            forNode->addChild(parseDeclaration(false));
         } else {
-            forNode->addChild(parseAssignment());
+            forNode->addChild(parseAssignment(false));
         }
     } else {
         forNode->addChild(makeNode("EMPTY"));
@@ -200,7 +212,7 @@ std::shared_ptr<ASTNode> Parser::parseForStatement() {
     consume(TokenType::SEMICOLON, "expected ';' after for condition");
 
     if (!check(TokenType::RPAREN)) {
-        forNode->addChild(parseAssignment());
+        forNode->addChild(parseAssignment(false));
     } else {
         forNode->addChild(makeNode("EMPTY"));
     }
@@ -319,7 +331,7 @@ std::shared_ptr<ASTNode> Parser::parseMultiplicative() {
 }
 
 std::shared_ptr<ASTNode> Parser::parseUnary() {
-    if (match({TokenType::NOT, TokenType::MINUS})) {
+    if (match({TokenType::NOT, TokenType::PLUS, TokenType::MINUS})) {
         Token op = previous();
         auto operand = parseUnary();
         auto node = makeNode("UNARY", op.lexeme, op.line);

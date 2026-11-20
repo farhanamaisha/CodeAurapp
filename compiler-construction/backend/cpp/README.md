@@ -9,6 +9,8 @@ Included phases:
 - Symbol table construction
 - Semantic analysis
 - Three Address Code (TAC) generation
+- TAC optimization
+- Pseudo-assembly code generation
 
 ## Folder structure
 - src/ast: AST node definitions
@@ -40,3 +42,5 @@ The compiler prints a JSON result containing:
 - symbols
 - semantic errors
 - TAC instructions
+- optimized TAC instructions
+- generated pseudo-assembly

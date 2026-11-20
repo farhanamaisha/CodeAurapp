@@ -6,6 +6,8 @@
 #include "../lexer/Lexer.hpp"
 #include "../parser/Parser.hpp"
 #include "../semantic/SemanticAnalyzer.hpp"
+#include "../optimization/TACOptimizer.hpp"
+#include "../codegen/CodeGenerator.hpp"
 
 namespace compiler_cpp {
 
@@ -112,7 +114,13 @@ CompileResult Compiler::compile(const std::string& source) {
     result.symbols = analyzer.getSymbolTable().getAllSymbols();
 
     TACGenerator tacGenerator;
-    result.tac = tacGenerator.generate(result.ast);
+    if (result.errors.empty()) {
+        result.tac = tacGenerator.generate(result.ast);
+        TACOptimizer optimizer;
+        result.optimizedTac = optimizer.optimize(result.tac);
+        CodeGenerator codeGenerator;
+        result.code = codeGenerator.generate(result.optimizedTac);
+    }
 
     result.success = result.errors.empty();
     return result;
@@ -125,7 +133,9 @@ std::string Compiler::toJson(const CompileResult& result) {
     out << "\"ast\":" << astToJson(result.ast) << ",";
     out << "\"symbols\":" << symbolListToJson(result.symbols) << ",";
     out << "\"errors\":" << stringListToJson(result.errors) << ",";
-    out << "\"tac\":" << stringListToJson(result.tac) << "}";
+    out << "\"tac\":" << stringListToJson(result.tac) << ",";
+    out << "\"optimized_tac\":" << stringListToJson(result.optimizedTac) << ",";
+    out << "\"code\":" << stringListToJson(result.code) << "}";
     return out.str();
 }
 
