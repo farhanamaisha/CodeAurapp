@@ -11,6 +11,7 @@ import java_cup.runtime.Symbol;
 import ast.ASTNode;
 import semantic.SemanticAnalyzer;
 import intermediate.TACGenerator;
+import runtime.ProgramExecutor;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -104,10 +105,23 @@ public class Main {
 
             // Step 4: Intermediate Code Generation.
             List<String> tacInstructions = List.of();
+            List<String> programOutput = List.of();
+            List<String> runtimeErrors = new ArrayList<>();
 
             if (errors.isEmpty()) {
                 TACGenerator tac = new TACGenerator();
                 tacInstructions = tac.generate(ast);
+
+                try {
+                    ProgramExecutor executor = new ProgramExecutor();
+                    programOutput = executor.execute(ast, "");
+                } catch (RuntimeException runtimeException) {
+                    runtimeErrors.add(
+                        runtimeException.getMessage() == null
+                            ? "Program execution failed."
+                            : runtimeException.getMessage()
+                    );
+                }
             }
 
             String response = buildResponse(
@@ -115,7 +129,9 @@ public class Main {
                 ast,
                 symbols,
                 errors,
-                tacInstructions
+                tacInstructions,
+                programOutput,
+                runtimeErrors
             );
 
             sendResponse(exchange, 200, response);
@@ -184,7 +200,9 @@ public class Main {
             ASTNode ast,
             List<symboltable.Symbol> symbols,
             List<String> errors,
-            List<String> tac) {
+            List<String> tac,
+            List<String> programOutput,
+            List<String> runtimeErrors) {
 
         StringBuilder json = new StringBuilder();
 
@@ -239,6 +257,12 @@ public class Main {
 
         json.append(",\"tac\":");
         appendStringList(json, tac);
+
+        json.append(",\"programOutput\":");
+        appendStringList(json, programOutput);
+
+        json.append(",\"runtimeErrors\":");
+        appendStringList(json, runtimeErrors);
 
         json.append("}");
 

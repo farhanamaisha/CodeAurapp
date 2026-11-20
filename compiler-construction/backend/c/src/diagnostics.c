@@ -7,6 +7,9 @@
 
 void add_diagnostic(DiagnosticArray *diagnostics, int line, int column,
                     const char *format, ...) {
+    if (format == NULL) {
+        format = "invalid diagnostic";
+    }
     va_list args;
     va_list copy;
     va_start(args, format);

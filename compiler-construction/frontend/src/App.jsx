@@ -7,13 +7,42 @@ const starterCode = `public class Test {
         int a = 10;
         int b = 20;
         int sum = a + b;
-
         System.out.println(sum);
     }
 }`;
 
+function getErrorCategory(message) {
+    const error = message.toLowerCase();
+
+    if (/lexical|illegal character|invalid token|unrecognized token/.test(error))
+        return "Lexical Error";
+    if (/syntax|parse|unexpected token|expected/.test(error))
+        return "Syntax Error";
+    if (/semantic|undeclared|already declared|type mismatch|incompatible/.test(error))
+        return "Semantic Error";
+    if (/runtime|division by zero|uninitialized variable/.test(error))
+        return "Runtime Error";
+
+    return "Compiler Error";
+}
+
+function Phase({ number, title, status, children }) {
+    return (
+        <div className="panel">
+            <div className="phase-heading">
+                <h3>{number}. {title}</h3>
+                <span className={status === "Completed" ? "success" : "pending"}>
+                    {status}
+                </span>
+            </div>
+            {children}
+        </div>
+    );
+}
+
 export default function App() {
     const [source, setSource] = useState(starterCode);
+    const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -24,16 +53,17 @@ export default function App() {
         try {
             const response = await fetch("/api/compile", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ source })
             });
 
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.errors?.join(", ") || `Server error: ${response.status}`);
+                throw new Error(
+                    data.errors?.join(", ") ||
+                    `Server error: ${response.status}`
+                );
             }
 
             setResult(data);
@@ -41,14 +71,18 @@ export default function App() {
             setResult({
                 success: false,
                 errors: [
-                    error.message || "Could not connect to Java compiler.",
-                    "Make sure the Java backend is running on port 8080."
+                    error.message || "Could not connect to Java compiler."
                 ]
             });
         } finally {
             setLoading(false);
         }
     }
+
+    const errors = result?.errors || [];
+    const runtimeErrors = result?.runtimeErrors || [];
+    const programOutput = result?.programOutput || [];
+    const completed = result?.success === true;
 
     return (
         <main className="app">
@@ -64,7 +98,9 @@ export default function App() {
                 <div className="section-heading">
                     <div>
                         <h2>Java Source Code</h2>
-                        <p className="hint">Write your Java program below.</p>
+                        <p className="hint">
+                            Write your Java program below.
+                        </p>
                     </div>
 
                     <button
@@ -80,8 +116,22 @@ export default function App() {
                     className="code-editor"
                     spellCheck="false"
                     value={source}
-                    onChange={(event) => setSource(event.target.value)}
+                    onChange={e => setSource(e.target.value)}
                     placeholder="Write Java code here..."
+                />
+            </section>
+
+            <section className="editor-section">
+                <h2>Standard Input</h2>
+                <p className="hint">
+                    Enter input for your program here.
+                </p>
+
+                <textarea
+                    className="input-editor"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder="Enter program input here..."
                 />
             </section>
 
@@ -89,25 +139,47 @@ export default function App() {
                 <section className="results">
                     <div className="result-status">
                         <h2>Compilation Results</h2>
-                        <span className={result.success ? "success" : "failure"}>
-                            {result.success
+                        <span className={completed ? "success" : "failure"}>
+                            {completed
                                 ? "✓ Compilation Successful"
                                 : "✕ Compilation Failed"}
                         </span>
                     </div>
 
-                    {result.errors?.length > 0 && (
+                    {errors.length > 0 && (
                         <div className="panel error-panel">
-                            <h3>Compiler Errors</h3>
-                            {result.errors.map((error, index) => (
-                                <p key={index}>{error}</p>
+                            <h3>Compilation Diagnostics</h3>
+
+                            {errors.map((error, index) => (
+                                <div className="diagnostic" key={index}>
+                                    <strong>
+                                        {getErrorCategory(String(error))}
+                                    </strong>
+                                    <p>{String(error)}</p>
+                                </div>
                             ))}
                         </div>
                     )}
 
-                    {result.tokens && (
-                        <div className="panel">
-                            <h3>1. Lexical Analysis — Tokens</h3>
+                    {runtimeErrors.length > 0 && (
+                        <div className="panel error-panel">
+                            <h3>Runtime Diagnostics</h3>
+
+                            {runtimeErrors.map((error, index) => (
+                                <div className="diagnostic" key={index}>
+                                    <strong>Runtime Error</strong>
+                                    <p>{String(error)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Phase
+                        number="1"
+                        title="Lexical Analysis"
+                        status={result.tokens ? "Completed" : "Not completed"}
+                    >
+                        {result.tokens ? (
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -118,8 +190,8 @@ export default function App() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {result.tokens.map((token, index) => (
-                                            <tr key={index}>
+                                        {result.tokens.map((token, i) => (
+                                            <tr key={i}>
                                                 <td>{token.type}</td>
                                                 <td>{token.lexeme || "EOF"}</td>
                                                 <td>{token.line}</td>
@@ -128,80 +200,119 @@ export default function App() {
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
-                    )}
+                        ) : (
+                            <p>Tokenization did not complete.</p>
+                        )}
+                    </Phase>
 
-                    {result.ast && (
-                        <div className="panel">
-                            <h3>2. Syntax Analysis — Abstract Syntax Tree</h3>
+                    <Phase
+                        number="2"
+                        title="Syntax Analysis"
+                        status={result.ast ? "Completed" : "Not completed"}
+                    >
+                        {result.ast ? (
                             <pre>{JSON.stringify(result.ast, null, 2)}</pre>
-                        </div>
-                    )}
+                        ) : (
+                            <p>AST not generated.</p>
+                        )}
+                    </Phase>
 
-                    {result.symbols && (
-                        <div className="panel">
-                            <h3>3. Semantic Analysis — Symbol Table</h3>
-                            {result.symbols.length > 0 ? (
-                                <div className="table-wrapper">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Variable</th>
-                                                <th>Data Type</th>
-                                                <th>Line</th>
+                    <Phase
+                        number="3"
+                        title="Semantic Analysis"
+                        status={result.symbols ? "Completed" : "Not completed"}
+                    >
+                        {result.symbols?.length ? (
+                            <div className="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Variable</th>
+                                            <th>Data Type</th>
+                                            <th>Line</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {result.symbols.map((symbol, i) => (
+                                            <tr key={i}>
+                                                <td>{symbol.name}</td>
+                                                <td>{symbol.type}</td>
+                                                <td>{symbol.line}</td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            {result.symbols.map((symbol, index) => (
-                                                <tr key={index}>
-                                                    <td>{symbol.name}</td>
-                                                    <td>{symbol.type}</td>
-                                                    <td>{symbol.line}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <p>No variables declared.</p>
-                            )}
-                        </div>
-                    )}
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <p>
+                                {result.symbols
+                                    ? "No variables declared."
+                                    : "Semantic analysis not completed."}
+                            </p>
+                        )}
+                    </Phase>
 
-                    {result.tac && (
-                        <div className="panel">
-                            <h3>4. Intermediate Code — Three Address Code</h3>
-                            <pre>
-                                {result.tac.length > 0
-                                    ? result.tac.join("\n")
-                                    : "No intermediate code generated."}
-                            </pre>
-                        </div>
-                    )}
+                    <Phase
+                        number="4"
+                        title="Intermediate Code Generation"
+                        status={result.tac ? "Completed" : "Not completed"}
+                    >
+                        {result.tac?.length > 0 ? (
+                            <pre>{result.tac.join("\n")}</pre>
+                        ) : (
+                            <p>No intermediate code generated.</p>
+                        )}
+                    </Phase>
 
-                    {result.optimized_tac && (
-                        <div className="panel">
-                            <h3>5. Code Optimization — Optimized TAC</h3>
+                    <Phase
+                        number="5"
+                        title="Code Optimization"
+                        status={result.optimized_tac ? "Completed" : "Not implemented"}
+                    >
+                        {result.optimized_tac ? (
                             <pre>
                                 {result.optimized_tac.length > 0
                                     ? result.optimized_tac.join("\n")
                                     : "No optimized TAC generated."}
                             </pre>
-                        </div>
-                    )}
+                        ) : (
+                            <p>Optimization phase is pending backend implementation.</p>
+                        )}
+                    </Phase>
 
-                    {result.code && (
-                        <div className="panel">
-                            <h3>6. Code Generation — Pseudo-Assembly</h3>
+                    <Phase
+                        number="6"
+                        title="Code Generation"
+                        status={result.code ? "Completed" : "Not implemented"}
+                    >
+                        {result.code ? (
                             <pre>
                                 {result.code.length > 0
                                     ? result.code.join("\n")
                                     : "No generated code."}
                             </pre>
-                        </div>
-                    )}
+                        ) : (
+                            <p>Target code generation is pending backend implementation.</p>
+                        )}
+                    </Phase>
                 </section>
             )}
+
+            <section className="panel">
+                <h3>Program Output</h3>
+
+                <pre className="output-placeholder">
+                    {!result
+                        ? "Compile your Java program to view its output here."
+                        : runtimeErrors.length > 0
+                            ? "Program execution failed. See Runtime Diagnostics above."
+                            : programOutput.length > 0
+                                ? programOutput.join("\n")
+                                : completed
+                                    ? "Program executed successfully. No output."
+                                    : "Program output is unavailable because compilation failed."}
+                </pre>
+            </section>
 
             <footer className="footer">
                 Java Compiler · Compiler Construction
