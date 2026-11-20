@@ -2,14 +2,36 @@
 import { useState } from "react";
 import "./styles/App.css";
 
-const starterCode = `public class Test {
+const starterCode = {
+Java: `public class Test {
     public static void main(String[] args) {
         int a = 10;
         int b = 20;
         int sum = a + b;
         System.out.println(sum);
     }
-}`;
+}`,
+C: `#include <stdio.h>
+
+int main(void) {
+    int a, b, sum;
+
+    scanf("%d %d", &a, &b);
+    sum = a + b;
+    printf("%d\\n", sum);
+
+    return 0;
+}`,
+"C++": `#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 10;
+    int b = 20;
+    cout << a + b << endl;
+    return 0;
+}`
+};
 
 function getErrorCategory(message) {
     const error = String(message).toLowerCase();
@@ -43,7 +65,8 @@ function Phase({ number, title, status, children }) {
 }
 
 export default function App() {
-    const [source, setSource] = useState(starterCode);
+    const [language, setLanguage] = useState("Java");
+    const [source, setSource] = useState(starterCode.Java);
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -56,7 +79,7 @@ export default function App() {
             const response = await fetch("/api/compile", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source, input })
+                body: JSON.stringify({ language, source, input })
             });
 
             const responseText = await response.text();
@@ -66,7 +89,7 @@ export default function App() {
                 data = JSON.parse(responseText);
             } catch {
                 throw new Error(
-                    `Invalid response from Java compiler (HTTP ${response.status}).`
+                    `Invalid response from ${language} compiler (HTTP ${response.status}).`
                 );
             }
 
@@ -87,7 +110,7 @@ export default function App() {
                 tac: null,
                 programOutput: [],
                 runtimeErrors: [],
-                errors: [error.message || "Could not connect to Java compiler."]
+                errors: [error.message || `Could not connect to ${language} compiler.`]
             });
         } finally {
             setLoading(false);
@@ -103,17 +126,33 @@ export default function App() {
         <main className="app">
             <header className="header">
                 <div>
-                    <h1>Java Compiler</h1>
+                    <h1>{language} Compiler</h1>
                     <p>Compiler Construction Project</p>
                 </div>
-                <span className="language-tag">Java · JFlex · CUP</span>
+                <label className="language-select">
+                    Language
+                    <select
+                        value={language}
+                        onChange={event => {
+                            const nextLanguage = event.target.value;
+                            setLanguage(nextLanguage);
+                            setSource(starterCode[nextLanguage]);
+                            setInput("");
+                            setResult(null);
+                        }}
+                    >
+                        <option value="Java">Java</option>
+                        <option value="C">C</option>
+                        <option value="C++">C++</option>
+                    </select>
+                </label>
             </header>
 
             <section className="editor-section">
                 <div className="section-heading">
                     <div>
-                        <h2>Java Source Code</h2>
-                        <p className="hint">Write your Java program below.</p>
+                        <h2>{language} Source Code</h2>
+                        <p className="hint">Write your {language} program below.</p>
                     </div>
 
                     <button
@@ -121,7 +160,7 @@ export default function App() {
                         onClick={compileCode}
                         disabled={loading || !source.trim()}
                     >
-                        {loading ? "Compiling..." : "▶ Compile Java"}
+                        {loading ? "Compiling..." : `▶ Compile ${language}`}
                     </button>
                 </div>
 
@@ -130,7 +169,7 @@ export default function App() {
                     spellCheck="false"
                     value={source}
                     onChange={e => setSource(e.target.value)}
-                    placeholder="Write Java code here..."
+                    placeholder={`Write ${language} code here...`}
                 />
             </section>
 
@@ -314,7 +353,7 @@ export default function App() {
                 <h3>Program Output</h3>
                 <pre className="output-placeholder">
                     {!result
-                        ? "Compile your Java program to view its output here."
+                        ? `Compile your ${language} program to view its output here.`
                         : runtimeErrors.length > 0
                             ? "Program execution failed. See Runtime Diagnostics above."
                             : programOutput.length > 0
@@ -326,7 +365,7 @@ export default function App() {
             </section>
 
             <footer className="footer">
-                Java Compiler · Compiler Construction
+                {language} Compiler · Compiler Construction
             </footer>
         </main>
     );

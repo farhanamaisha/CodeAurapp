@@ -16,8 +16,11 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class Main {
 
@@ -30,6 +33,18 @@ public class Main {
             this.type = type;
             this.lexeme = lexeme;
             this.line = line;
+        }
+    }
+
+    private static class ProcessResult {
+        int exitCode;
+        String stdout;
+        String stderr;
+
+        ProcessResult(int exitCode, String stdout, String stderr) {
+            this.exitCode = exitCode;
+            this.stdout = stdout;
+            this.stderr = stderr;
         }
     }
 
@@ -68,11 +83,20 @@ public class Main {
 
             String source = extractJsonString(body, "source");
             String input = extractJsonString(body, "input");
+            String language = extractJsonString(body, "language");
+            if (language == null) language = "Java";
 
             if (source == null || source.trim().isEmpty()) {
                 throw new RuntimeException(
-                    "Please enter some Java source code."
+                    "Please enter " + language + " source code."
                 );
+            }
+
+            if (!language.equalsIgnoreCase("Java")) {
+                String externalResponse =
+                    compileExternalLanguage(language, source, input);
+                sendResponse(exchange, 200, externalResponse);
+                return;
             }
 
             List<TokenInfo> tokens = tokenize(source);
@@ -144,6 +168,251 @@ public class Main {
 
             sendResponse(exchange, 200, response);
         }
+    }
+
+    private static String compileExternalLanguage(
+            String language, String source, String input) throws IOException {
+
+        Path root = findRepositoryRoot();
+        Path tempSource = Files.createTempFile(
+            "compiler-" + language.toLowerCase(Locale.ROOT),
+            language.equalsIgnoreCase("C++") ? ".cpp" : ".c"
+        );
+        Files.writeString(tempSource, source, StandardCharsets.UTF_8);
+
+        try {
+            if (language.equalsIgnoreCase("C")) {
+                Path cDirectory = root.resolve("compiler-construction/backend/c");
+                runProcess(List.of("make", "-C", cDirectory.toString()),
+                           "", cDirectory);
+                ProcessResult result = runProcess(
+                    List.of(cDirectory.resolve("c-compiler").toString(),
+                             "--run", tempSource.toString()),
+                    input,
+                    cDirectory
+                );
+                return buildCResponse(result);
+            }
+
+            if (language.equalsIgnoreCase("C++")) {
+                Path cppDirectory =
+                    root.resolve("compiler-construction/backend/cpp");
+                Path binary = cppDirectory.resolve("build/cpp_compiler");
+                if (!Files.isExecutable(binary)) {
+                    runProcess(List.of(
+                        "cmake", "-S", cppDirectory.toString(),
+                        "-B", cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                    runProcess(List.of(
+                        "cmake", "--build",
+                        cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                }
+                ProcessResult result = runProcess(
+                    List.of(binary.toString(), tempSource.toString()),
+                    input,
+                    cppDirectory
+                );
+                if (result.exitCode == 0 ||
+                    result.stdout.trim().startsWith("{")) {
+                    return result.stdout;
+                }
+                return "{\"success\":false,\"errors\":["
+                    + jsonString(result.stderr.isBlank()
+                        ? "C++ compilation failed." : result.stderr.trim())
+                    + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+                    + "\"tac\":[],\"optimized_tac\":[],\"code\":[],"
+                    + "\"programOutput\":[],\"runtimeErrors\":[]}";
+            }
+        } finally {
+            Files.deleteIfExists(tempSource);
+        }
+
+        return "{\"success\":false,\"errors\":["
+            + jsonString("Unsupported language: " + language)
+            + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+            + "\"tac\":[],\"programOutput\":[],\"runtimeErrors\":[]}";
+    }
+
+    private static String buildCResponse(ProcessResult result) {
+        String stdout = result.stdout;
+        boolean successful = result.exitCode == 0
+            && stdout.contains("Status: compiled and executed successfully");
+
+        String tokenSection = extractSection(
+            stdout, "=== 1. LEXICAL ANALYSIS: TOKENS ===",
+            "\n=== 2.");
+        String astSection = extractSection(
+            stdout, "=== 2. SYNTAX ANALYSIS: AST ===",
+            "\n=== 3.");
+        String symbolSection = extractSection(
+            stdout, "=== 3. SEMANTIC ANALYSIS: SYMBOLS ===",
+            "\n=== 4.");
+        String tacSection = extractSection(
+            stdout, "=== 5. INTERMEDIATE CODE GENERATION: TAC ===",
+            "\n=== 6.");
+        String diagnosticSection = extractSection(
+            stdout, "=== DIAGNOSTICS ===", "\n=== 6.");
+
+        List<String> errors = new ArrayList<>();
+        if (!diagnosticSection.isEmpty()) {
+            for (String line : diagnosticSection.split("\\R")) {
+                if (!line.trim().isEmpty()) errors.add(line.trim());
+            }
+        } else if (result.stderr != null && !result.stderr.trim().isEmpty()
+                   && result.exitCode != 0) {
+            errors.add(result.stderr.trim());
+        }
+
+        StringBuilder output = new StringBuilder();
+        output.append("{\"success\":").append(successful).append(",");
+        output.append("\"tokens\":").append(parseCTokens(tokenSection)).append(",");
+        output.append("\"ast\":").append(astSection.isEmpty()
+            ? "null" : jsonString(astSection.trim())).append(",");
+        output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
+        output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
+        output.append("\"optimized_tac\":[],");
+        output.append("\"code\":[],");
+        output.append("\"errors\":").append(stringListJson(errors)).append(",");
+        output.append("\"programOutput\":").append(parseCProgramOutput(stdout)).append(",");
+        output.append("\"runtimeErrors\":[]}");
+        return output.toString();
+    }
+
+    private static String extractSection(
+            String text, String startMarker, String endMarker) {
+        int start = text.indexOf(startMarker);
+        if (start < 0) return "";
+        start += startMarker.length();
+        int end = text.indexOf(endMarker, start);
+        if (end < 0) end = text.length();
+        return text.substring(start, end).trim();
+    }
+
+    private static String parseCTokens(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.split("\\t", -1);
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"type\":").append(jsonString(columns[0].trim()))
+                    .append(",\"lexeme\":").append(jsonString(columns[1].trim()))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(
+                        columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCSymbols(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.trim().split("\\s+");
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"name\":").append(jsonString(columns[0]))
+                    .append(",\"type\":").append(jsonString(columns[1]))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCTac(String section) {
+        List<String> lines = new ArrayList<>();
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String parseCProgramOutput(String stdout) {
+        int start = stdout.indexOf("Program output:");
+        if (start < 0) return "[]";
+        start += "Program output:".length();
+        int end = stdout.indexOf("Status:", start);
+        if (end < 0) end = stdout.length();
+        String text = stdout.substring(start, end).trim();
+        List<String> lines = new ArrayList<>();
+        if (!text.isEmpty()) {
+            for (String line : text.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String stringListJson(List<String> values) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) json.append(",");
+            json.append(jsonString(values.get(i)));
+        }
+        return json.append("]").toString();
+    }
+
+    private static Path findRepositoryRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve("compiler-construction/backend/c"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return Path.of("").toAbsolutePath();
+    }
+
+    private static ProcessResult runProcess(
+            List<String> command, String input, Path workingDirectory)
+            throws IOException {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.directory(workingDirectory.toFile());
+        builder.redirectErrorStream(false);
+        Process process = builder.start();
+        if (input != null && !input.isEmpty()) {
+            try (var stream = process.getOutputStream()) {
+                stream.write(input.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+        } else {
+            process.getOutputStream().close();
+        }
+        String stdout;
+        String stderr;
+        try (var out = process.getInputStream()) {
+            stdout = new String(out.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        try (var err = process.getErrorStream()) {
+            stderr = new String(err.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int exitCode;
+        try {
+            exitCode = process.waitFor();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ProcessResult(1, "", "Process interrupted.");
+        }
+        return new ProcessResult(exitCode, stdout, stderr);
     }
 
     private static String classifyError(String message) {
