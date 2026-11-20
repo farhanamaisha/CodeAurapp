@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import "./styles/App.css";
 
@@ -19,7 +20,7 @@ function getErrorCategory(message) {
         return "Syntax Error";
     if (/semantic|undeclared|already declared|type mismatch|incompatible/.test(error))
         return "Semantic Error";
-    if (/runtime|division by zero/.test(error))
+    if (/runtime|division by zero|uninitialized variable/.test(error))
         return "Runtime Error";
 
     return "Compiler Error";
@@ -59,14 +60,19 @@ export default function App() {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.errors?.join(", ") || `Server error: ${response.status}`);
+                throw new Error(
+                    data.errors?.join(", ") ||
+                    `Server error: ${response.status}`
+                );
             }
 
             setResult(data);
         } catch (error) {
             setResult({
                 success: false,
-                errors: [error.message || "Could not connect to Java compiler."]
+                errors: [
+                    error.message || "Could not connect to Java compiler."
+                ]
             });
         } finally {
             setLoading(false);
@@ -74,6 +80,8 @@ export default function App() {
     }
 
     const errors = result?.errors || [];
+    const runtimeErrors = result?.runtimeErrors || [];
+    const programOutput = result?.programOutput || [];
     const completed = result?.success === true;
 
     return (
@@ -90,25 +98,41 @@ export default function App() {
                 <div className="section-heading">
                     <div>
                         <h2>Java Source Code</h2>
-                        <p className="hint">Write your Java program below.</p>
+                        <p className="hint">
+                            Write your Java program below.
+                        </p>
                     </div>
-                    <button className="run-button" onClick={compileCode}
-                        disabled={loading || !source.trim()}>
+
+                    <button
+                        className="run-button"
+                        onClick={compileCode}
+                        disabled={loading || !source.trim()}
+                    >
                         {loading ? "Compiling..." : "▶ Compile Java"}
                     </button>
                 </div>
 
-                <textarea className="code-editor" spellCheck="false"
-                    value={source} onChange={e => setSource(e.target.value)}
-                    placeholder="Write Java code here..." />
+                <textarea
+                    className="code-editor"
+                    spellCheck="false"
+                    value={source}
+                    onChange={e => setSource(e.target.value)}
+                    placeholder="Write Java code here..."
+                />
             </section>
 
             <section className="editor-section">
                 <h2>Standard Input</h2>
-                <p className="hint">Input support will be connected to the Java execution engine.</p>
-                <textarea className="input-editor" value={input}
+                <p className="hint">
+                    Enter input for your program here.
+                </p>
+
+                <textarea
+                    className="input-editor"
+                    value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder="Enter program input here..." />
+                    placeholder="Enter program input here..."
+                />
             </section>
 
             {result && (
@@ -116,27 +140,55 @@ export default function App() {
                     <div className="result-status">
                         <h2>Compilation Results</h2>
                         <span className={completed ? "success" : "failure"}>
-                            {completed ? "✓ Compilation Successful" : "✕ Compilation Failed"}
+                            {completed
+                                ? "✓ Compilation Successful"
+                                : "✕ Compilation Failed"}
                         </span>
                     </div>
 
                     {errors.length > 0 && (
                         <div className="panel error-panel">
                             <h3>Compilation Diagnostics</h3>
+
                             {errors.map((error, index) => (
                                 <div className="diagnostic" key={index}>
-                                    <strong>{getErrorCategory(String(error))}</strong>
+                                    <strong>
+                                        {getErrorCategory(String(error))}
+                                    </strong>
                                     <p>{String(error)}</p>
                                 </div>
                             ))}
                         </div>
                     )}
 
-                    <Phase number="1" title="Lexical Analysis" status={result.tokens ? "Completed" : "Not completed"}>
+                    {runtimeErrors.length > 0 && (
+                        <div className="panel error-panel">
+                            <h3>Runtime Diagnostics</h3>
+
+                            {runtimeErrors.map((error, index) => (
+                                <div className="diagnostic" key={index}>
+                                    <strong>Runtime Error</strong>
+                                    <p>{String(error)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Phase
+                        number="1"
+                        title="Lexical Analysis"
+                        status={result.tokens ? "Completed" : "Not completed"}
+                    >
                         {result.tokens ? (
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Token Type</th><th>Lexeme</th><th>Line</th></tr></thead>
+                                    <thead>
+                                        <tr>
+                                            <th>Token Type</th>
+                                            <th>Lexeme</th>
+                                            <th>Line</th>
+                                        </tr>
+                                    </thead>
                                     <tbody>
                                         {result.tokens.map((token, i) => (
                                             <tr key={i}>
@@ -148,18 +200,38 @@ export default function App() {
                                     </tbody>
                                 </table>
                             </div>
-                        ) : <p>Tokenization did not complete.</p>}
+                        ) : (
+                            <p>Tokenization did not complete.</p>
+                        )}
                     </Phase>
 
-                    <Phase number="2" title="Syntax Analysis" status={result.ast ? "Completed" : "Not completed"}>
-                        {result.ast ? <pre>{JSON.stringify(result.ast, null, 2)}</pre> : <p>AST not generated.</p>}
+                    <Phase
+                        number="2"
+                        title="Syntax Analysis"
+                        status={result.ast ? "Completed" : "Not completed"}
+                    >
+                        {result.ast ? (
+                            <pre>{JSON.stringify(result.ast, null, 2)}</pre>
+                        ) : (
+                            <p>AST not generated.</p>
+                        )}
                     </Phase>
 
-                    <Phase number="3" title="Semantic Analysis" status={result.symbols ? "Completed" : "Not completed"}>
+                    <Phase
+                        number="3"
+                        title="Semantic Analysis"
+                        status={result.symbols ? "Completed" : "Not completed"}
+                    >
                         {result.symbols?.length ? (
                             <div className="table-wrapper">
                                 <table>
-                                    <thead><tr><th>Variable</th><th>Data Type</th><th>Line</th></tr></thead>
+                                    <thead>
+                                        <tr>
+                                            <th>Variable</th>
+                                            <th>Data Type</th>
+                                            <th>Line</th>
+                                        </tr>
+                                    </thead>
                                     <tbody>
                                         {result.symbols.map((symbol, i) => (
                                             <tr key={i}>
@@ -171,33 +243,68 @@ export default function App() {
                                     </tbody>
                                 </table>
                             </div>
-                        ) : <p>{result.symbols ? "No variables declared." : "Semantic analysis not completed."}</p>}
+                        ) : (
+                            <p>
+                                {result.symbols
+                                    ? "No variables declared."
+                                    : "Semantic analysis not completed."}
+                            </p>
+                        )}
                     </Phase>
 
-                    <Phase number="4" title="Intermediate Code Generation" status={result.tac ? "Completed" : "Not completed"}>
-                        {result.tac?.length ? <pre>{result.tac.join("\n")}</pre> : <p>No intermediate code generated.</p>}
+                    <Phase
+                        number="4"
+                        title="Intermediate Code Generation"
+                        status={result.tac ? "Completed" : "Not completed"}
+                    >
+                        {result.tac?.length ? (
+                            <pre>{result.tac.join("\n")}</pre>
+                        ) : (
+                            <p>No intermediate code generated.</p>
+                        )}
                     </Phase>
 
-                    <Phase number="5" title="Code Optimization" status="Not implemented">
-                        <p>Optimization phase is pending backend implementation.</p>
+                    <Phase
+                        number="5"
+                        title="Code Optimization"
+                        status="Not implemented"
+                    >
+                        <p>
+                            Optimization phase is pending backend implementation.
+                        </p>
                     </Phase>
 
-                    <Phase number="6" title="Code Generation" status="Not implemented">
-                        <p>Target code generation is pending backend implementation.</p>
+                    <Phase
+                        number="6"
+                        title="Code Generation"
+                        status="Not implemented"
+                    >
+                        <p>
+                            Target code generation is pending backend implementation.
+                        </p>
                     </Phase>
                 </section>
             )}
 
             <section className="panel">
                 <h3>Program Output</h3>
+
                 <pre className="output-placeholder">
-                    {result
-                        ? "Compilation results are shown above. Program execution is not connected yet."
-                        : "Compile your Java program to view its results here."}
+                    {!result
+                        ? "Compile your Java program to view its output here."
+                        : runtimeErrors.length > 0
+                            ? "Program execution failed. See Runtime Diagnostics above."
+                            : programOutput.length > 0
+                                ? programOutput.join("\n")
+                                : completed
+                                    ? "Program executed successfully. No output."
+                                    : "Program output is unavailable because compilation failed."}
                 </pre>
             </section>
 
-            <footer className="footer">Java Compiler · Compiler Construction</footer>
+            <footer className="footer">
+                Java Compiler · Compiler Construction
+            </footer>
         </main>
     );
 }
