@@ -12,6 +12,11 @@ Included phases:
 - TAC optimization
 - Pseudo-assembly code generation
 
+This is a teaching compiler for a limited C++ subset, not a general-purpose
+C++ compiler. It supports `using namespace std;` and comma-separated scalar
+declarations such as `int a, b, sum;`. It emits pseudo-assembly; it does not
+execute the generated program or support every C++ language feature.
+
 ## Folder structure
 - src/ast: AST node definitions
 - src/compiler: orchestrates compilation and JSON output

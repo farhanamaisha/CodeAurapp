@@ -10,6 +10,7 @@ enum class TokenType {
     INTEGER_LITERAL,
     FLOAT_LITERAL,
     STRING_LITERAL,
+    STRING_TYPE,
     BOOLEAN_LITERAL,
 
     INT,
@@ -22,6 +23,8 @@ enum class TokenType {
     RETURN,
     MAIN,
     COUT,
+    CIN,
+    GETLINE,
     ENDL,
 
     PLUS,
@@ -40,6 +43,7 @@ enum class TokenType {
     OR,
     NOT,
     SHIFT,
+    SCOPE,
 
     LPAREN,
     RPAREN,

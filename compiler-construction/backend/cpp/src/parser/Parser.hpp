@@ -23,6 +23,8 @@ private:
 
     bool isAtEnd() const;
     bool check(TokenType type) const;
+    bool isStdQualified(TokenType type) const;
+    bool matchStdQualifier();
     bool match(std::initializer_list<TokenType> types);
     Token advance();
     Token peek() const;
@@ -41,6 +43,8 @@ private:
     std::shared_ptr<ASTNode> parseWhileStatement();
     std::shared_ptr<ASTNode> parseForStatement();
     std::shared_ptr<ASTNode> parsePrintStatement();
+    std::shared_ptr<ASTNode> parseInputStatement();
+    std::shared_ptr<ASTNode> parseGetlineStatement();
     std::shared_ptr<ASTNode> parseReturnStatement();
     std::shared_ptr<ASTNode> parseExpression();
     std::shared_ptr<ASTNode> parseLogicalOr();

@@ -26,6 +26,7 @@ private:
     bool isAtEnd() const;
     void skipWhitespace();
     void skipComment();
+    void skipIncludeDirective();
     Token readIdentifierOrKeyword();
     Token readNumber();
     Token readString();
