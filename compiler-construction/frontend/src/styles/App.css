@@ -52,6 +52,25 @@ textarea {
     font-size: 13px;
 }
 
+.language-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #697386;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.language-select select {
+    min-width: 110px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: white;
+    color: #202938;
+    padding: 9px 32px 9px 10px;
+    font-weight: bold;
+}
+
 .editor-section,
 .panel {
     background: white;
