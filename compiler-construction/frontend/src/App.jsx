@@ -1,28 +1,53 @@
-
 import { useState } from "react";
 import "./styles/App.css";
 
-const starterCode = `public class Test {
+const starterCode = {
+Java: `public class Test {
     public static void main(String[] args) {
         int a = 10;
         int b = 20;
         int sum = a + b;
         System.out.println(sum);
     }
-}`;
+}`,
+C: `#include <stdio.h>
+
+int main(void) {
+    int a, b, sum;
+
+    scanf("%d %d", &a, &b);
+    sum = a + b;
+    printf("%d\\n", sum);
+
+    return 0;
+}`,
+"C++": `#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 10;
+    int b = 20;
+    cout << a + b << endl;
+    return 0;
+}`
+};
 
 function getErrorCategory(message) {
     const error = String(message).toLowerCase();
 
-    if (/lexical|illegal character|invalid token|unrecognized token/.test(error))
+    if (/lexical|illegal character|invalid token|unrecognized token|unexpected character/.test(error))
         return "Lexical Error";
+
     if (/runtime|division by zero|no more input|invalid int|invalid float/.test(error))
         return "Runtime Error";
-    if (/semantic|undeclared|already declared|type mismatch|incompatible/.test(error))
+
+    if (/semantic|undeclared|not declared|already declared|type mismatch|incompatible|cannot initialize|cannot assign/.test(error))
         return "Semantic Error";
+
     if (/syntax|parse|unexpected token|\bexpected\b|can't recover/.test(error))
         return "Syntax Error";
-    if (/build|maven|compilation failed|internal/.test(error))
+
+    if (/build|maven|internal|invalid response|could not connect|server error|bytecode generation/.test(error))
         return "Build / Internal Error";
 
     return "Compiler Error";
@@ -33,17 +58,28 @@ function Phase({ number, title, status, children }) {
         <div className="panel">
             <div className="phase-heading">
                 <h3>{number}. {title}</h3>
-                <span className={status === "Completed" ? "success" : "pending"}>
+
+                <span
+                    className={
+                        status === "Completed"
+                            ? "success"
+                            : status === "Failed"
+                                ? "failure"
+                                : "pending"
+                    }
+                >
                     {status}
                 </span>
             </div>
+
             {children}
         </div>
     );
 }
 
 export default function App() {
-    const [source, setSource] = useState(starterCode);
+    const [language, setLanguage] = useState("Java");
+    const [source, setSource] = useState(starterCode.Java);
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -56,7 +92,7 @@ export default function App() {
             const response = await fetch("/api/compile", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source, input })
+                body: JSON.stringify({ language, source, input })
             });
 
             const responseText = await response.text();
@@ -66,7 +102,7 @@ export default function App() {
                 data = JSON.parse(responseText);
             } catch {
                 throw new Error(
-                    `Invalid response from Java compiler (HTTP ${response.status}).`
+                    `Invalid response from ${language} compiler (HTTP ${response.status}).`
                 );
             }
 
@@ -78,6 +114,7 @@ export default function App() {
             }
 
             setResult(data);
+
         } catch (error) {
             setResult({
                 success: false,
@@ -85,10 +122,18 @@ export default function App() {
                 ast: null,
                 symbols: null,
                 tac: null,
+                optimizedTac: null,
+                intermediateCompleted: false,
+                optimizationCompleted: false,
+                bytecode: null,
+                generatedClassFile: null,
+                codeGenerationCompleted: false,
+                codeGenerationError: null,
                 programOutput: [],
                 runtimeErrors: [],
-                errors: [error.message || "Could not connect to Java compiler."]
+                errors: [error.message || `Could not connect to ${language} compiler.`]
             });
+
         } finally {
             setLoading(false);
         }
@@ -97,23 +142,94 @@ export default function App() {
     const errors = result?.errors || [];
     const runtimeErrors = result?.runtimeErrors || [];
     const programOutput = result?.programOutput || [];
+
+    // Java backend returns optimizedTac; C/C++ backends return optimized_tac
+    const optimizedTac = result?.optimizedTac ?? result?.optimized_tac ?? [];
+
+    const categories = errors.map(getErrorCategory);
+
+    const hasSemanticError = categories.includes("Semantic Error");
+    const hasSyntaxError = categories.includes("Syntax Error");
+    const hasLexicalError = categories.includes("Lexical Error");
+
+    const hasRuntimeError =
+        runtimeErrors.length > 0 ||
+        categories.includes("Runtime Error");
+
+    const compilationFailed =
+        hasSemanticError ||
+        hasSyntaxError ||
+        hasLexicalError;
+
     const completed = result?.success === true;
+
+    const semanticStatus = hasSemanticError
+        ? "Failed"
+        : result?.symbols !== null && result?.symbols !== undefined
+            ? "Completed"
+            : "Not completed";
+
+    const intermediateStatus =
+        compilationFailed
+            ? "Not completed"
+            : result?.intermediateCompleted === true ||
+              Array.isArray(result?.tac)
+                ? "Completed"
+                : "Not completed";
+
+    const optimizationStatus =
+        compilationFailed
+            ? "Not completed"
+            : result?.optimizationCompleted === true || optimizedTac.length > 0
+                ? "Completed"
+                : "Not implemented";
+
+    const codeGenerationStatus =
+        compilationFailed
+            ? "Not completed"
+            : result?.codeGenerationCompleted === true || result?.code?.length > 0
+                ? "Completed"
+                : result?.codeGenerationError
+                    ? "Failed"
+                    : "Not implemented";
 
     return (
         <main className="app">
+
+            {/* HEADER */}
+
             <header className="header">
                 <div>
-                    <h1>Java Compiler</h1>
+                    <h1>{language} Compiler</h1>
                     <p>Compiler Construction Project</p>
                 </div>
-                <span className="language-tag">Java · JFlex · CUP</span>
+
+                <label className="language-select">
+                    Language
+                    <select
+                        value={language}
+                        onChange={event => {
+                            const nextLanguage = event.target.value;
+                            setLanguage(nextLanguage);
+                            setSource(starterCode[nextLanguage]);
+                            setInput("");
+                            setResult(null);
+                        }}
+                    >
+                        <option value="Java">Java</option>
+                        <option value="C">C</option>
+                        <option value="C++">C++</option>
+                    </select>
+                </label>
             </header>
+
+            {/* SOURCE CODE EDITOR */}
 
             <section className="editor-section">
                 <div className="section-heading">
                     <div>
-                        <h2>Java Source Code</h2>
-                        <p className="hint">Write your Java program below.</p>
+                        <h2>{language} Source Code</h2>
+                        <p className="hint">Write your {language} program below.</p>
                     </div>
 
                     <button
@@ -121,7 +237,7 @@ export default function App() {
                         onClick={compileCode}
                         disabled={loading || !source.trim()}
                     >
-                        {loading ? "Compiling..." : "▶ Compile Java"}
+                        {loading ? "Compiling..." : `▶ Compile ${language}`}
                     </button>
                 </div>
 
@@ -130,14 +246,17 @@ export default function App() {
                     spellCheck="false"
                     value={source}
                     onChange={e => setSource(e.target.value)}
-                    placeholder="Write Java code here..."
+                    placeholder={`Write ${language} code here...`}
                 />
             </section>
 
+            {/* STANDARD INPUT */}
+
             <section className="editor-section">
                 <h2>Standard Input</h2>
+
                 <p className="hint">
-                    Enter the values your Scanner statements will read.
+                    Enter the values your program will read (Scanner / scanf / cin).
                     Separate values with spaces or new lines.
                 </p>
 
@@ -149,10 +268,14 @@ export default function App() {
                 />
             </section>
 
+            {/* COMPILATION RESULTS */}
+
             {result && (
                 <section className="results">
+
                     <div className="result-status">
                         <h2>Compilation Results</h2>
+
                         <span className={completed ? "success" : "failure"}>
                             {completed
                                 ? "✓ Compilation Successful"
@@ -160,9 +283,14 @@ export default function App() {
                         </span>
                     </div>
 
-                    {errors.length > 0 && (
+                    {/* DIAGNOSTICS */}
+
+                    {(errors.length > 0 ||
+                      runtimeErrors.length > 0 ||
+                      result.codeGenerationError) && (
                         <div className="panel error-panel">
                             <h3>Compilation Diagnostics</h3>
+
                             {errors.map((error, index) => (
                                 <div className="diagnostic" key={index}>
                                     <strong>
@@ -171,25 +299,39 @@ export default function App() {
                                     <p>{String(error)}</p>
                                 </div>
                             ))}
-                        </div>
-                    )}
 
-                    {runtimeErrors.length > 0 && (
-                        <div className="panel error-panel">
-                            <h3>Runtime Diagnostics</h3>
                             {runtimeErrors.map((error, index) => (
-                                <div className="diagnostic" key={index}>
+                                <div
+                                    className="diagnostic"
+                                    key={`runtime-${index}`}
+                                >
                                     <strong>Runtime Error</strong>
                                     <p>{String(error)}</p>
                                 </div>
                             ))}
+
+                            {result.codeGenerationError && (
+                                <div className="diagnostic">
+                                    <strong>Code Generation Error</strong>
+                                    <p>{String(result.codeGenerationError)}</p>
+                                </div>
+                            )}
                         </div>
                     )}
+
+                    {/* PHASE 1: LEXICAL ANALYSIS */}
 
                     <Phase
                         number="1"
                         title="Lexical Analysis"
-                        status={result.tokens ? "Completed" : "Not completed"}
+                        status={
+                            result.tokens !== null &&
+                            result.tokens !== undefined
+                                ? hasLexicalError
+                                    ? "Failed"
+                                    : "Completed"
+                                : "Not completed"
+                        }
                     >
                         {result.tokens ? (
                             <div className="table-wrapper">
@@ -201,6 +343,7 @@ export default function App() {
                                             <th>Line</th>
                                         </tr>
                                     </thead>
+
                                     <tbody>
                                         {result.tokens.map((token, i) => (
                                             <tr key={i}>
@@ -217,24 +360,38 @@ export default function App() {
                         )}
                     </Phase>
 
+                    {/* PHASE 2: SYNTAX ANALYSIS */}
+
                     <Phase
                         number="2"
                         title="Syntax Analysis"
-                        status={result.ast ? "Completed" : "Not completed"}
+                        status={
+                            result.ast
+                                ? hasSyntaxError
+                                    ? "Failed"
+                                    : "Completed"
+                                : "Not completed"
+                        }
                     >
                         {result.ast ? (
-                            <pre>{JSON.stringify(result.ast, null, 2)}</pre>
+                            <pre>
+                                {typeof result.ast === "string"
+                                    ? result.ast
+                                    : JSON.stringify(result.ast, null, 2)}
+                            </pre>
                         ) : (
                             <p>AST not generated.</p>
                         )}
                     </Phase>
 
+                    {/* PHASE 3: SEMANTIC ANALYSIS */}
+
                     <Phase
                         number="3"
                         title="Semantic Analysis"
-                        status={result.symbols ? "Completed" : "Not completed"}
+                        status={semanticStatus}
                     >
-                        {result.symbols?.length ? (
+                        {result.symbols?.length > 0 ? (
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -244,6 +401,7 @@ export default function App() {
                                             <th>Line</th>
                                         </tr>
                                     </thead>
+
                                     <tbody>
                                         {result.symbols.map((symbol, i) => (
                                             <tr key={i}>
@@ -257,77 +415,158 @@ export default function App() {
                             </div>
                         ) : (
                             <p>
-                                {result.symbols
-                                    ? "No variables declared."
-                                    : "Semantic analysis not completed."}
+                                {semanticStatus === "Failed"
+                                    ? "Semantic errors detected. See diagnostics above."
+                                    : result.symbols
+                                        ? "No variables declared."
+                                        : "Semantic analysis not completed."}
                             </p>
                         )}
                     </Phase>
 
+                    {/* PHASE 4: INTERMEDIATE CODE GENERATION */}
+
                     <Phase
                         number="4"
                         title="Intermediate Code Generation"
-                        status={result.tac ? "Completed" : "Not completed"}
+                        status={intermediateStatus}
                     >
                         {result.tac?.length > 0 ? (
-                            <pre>{result.tac.join("\n")}</pre>
+                            <>
+                                <p className="hint">
+                                    Original Three-Address Code (TAC)
+                                </p>
+
+                                <pre>
+                                    {result.tac.join("\n")}
+                                </pre>
+                            </>
                         ) : (
                             <p>No intermediate code generated.</p>
                         )}
                     </Phase>
 
+                    {/* PHASE 5: CODE OPTIMIZATION */}
+
                     <Phase
                         number="5"
                         title="Code Optimization"
-                        status={result.optimized_tac ? "Completed" : "Not implemented"}
+                        status={optimizationStatus}
                     >
-                        {result.optimized_tac ? (
-                            <pre>
-                                {result.optimized_tac.length > 0
-                                    ? result.optimized_tac.join("\n")
-                                    : "No optimized TAC generated."}
-                            </pre>
+                        {optimizedTac.length > 0 ? (
+                            <>
+                                <p className="hint">
+                                    Optimized Three-Address Code (TAC)
+                                </p>
+
+                                <pre>
+                                    {optimizedTac.join("\n")}
+                                </pre>
+
+                                <p className="hint">
+                                    Applied optimizations: Constant Folding
+                                    and Constant Propagation.
+                                </p>
+                            </>
+                        ) : optimizationStatus === "Completed" ? (
+                            <p>
+                                Optimization completed. No optimized
+                                instructions to display.
+                            </p>
                         ) : (
-                            <p>Optimization phase is pending backend implementation.</p>
+                            <p>
+                                {compilationFailed
+                                    ? "Optimization skipped because an earlier compilation phase failed."
+                                    : "Optimization phase is pending backend implementation."}
+                            </p>
                         )}
                     </Phase>
+
+                    {/* PHASE 6: CODE GENERATION */}
 
                     <Phase
                         number="6"
-                        title="Code Generation"
-                        status={result.code ? "Completed" : "Not implemented"}
+                        title={
+                            language === "Java"
+                                ? "Target Code Generation (JVM Bytecode)"
+                                : "Code Generation"
+                        }
+                        status={codeGenerationStatus}
                     >
-                        {result.code ? (
-                            <pre>
-                                {result.code.length > 0
-                                    ? result.code.join("\n")
-                                    : "No generated code."}
-                            </pre>
+                        {result.codeGenerationCompleted === true ? (
+                            <>
+                                <p className="hint">
+                                    JVM Bytecode generated successfully.
+                                </p>
+
+                                {result.bytecode ? (
+                                    <pre className="code-output">
+                                        {result.bytecode}
+                                    </pre>
+                                ) : (
+                                    <p>
+                                        Bytecode was generated, but its
+                                        textual representation is unavailable.
+                                    </p>
+                                )}
+
+                                {result.generatedClassFile && (
+                                    <>
+                                        <p className="hint">
+                                            Generated Class File
+                                        </p>
+
+                                        <pre className="code-output">
+                                            {result.generatedClassFile}
+                                        </pre>
+                                    </>
+                                )}
+                            </>
+                        ) : result.code?.length > 0 ? (
+                            <pre>{result.code.join("\n")}</pre>
+                        ) : result.codeGenerationError ? (
+                            <p>
+                                JVM bytecode generation failed. See the
+                                diagnostic message above.
+                            </p>
                         ) : (
-                            <p>Target code generation is pending backend implementation.</p>
+                            <p>
+                                {compilationFailed
+                                    ? "Code generation skipped because an earlier compilation phase failed."
+                                    : "Code generation is pending backend implementation."}
+                            </p>
                         )}
                     </Phase>
+
                 </section>
             )}
 
+            {/* PROGRAM OUTPUT */}
+
             <section className="panel">
                 <h3>Program Output</h3>
+
                 <pre className="output-placeholder">
                     {!result
-                        ? "Compile your Java program to view its output here."
-                        : runtimeErrors.length > 0
-                            ? "Program execution failed. See Runtime Diagnostics above."
-                            : programOutput.length > 0
-                                ? programOutput.join("\n")
-                                : completed
-                                    ? "Program executed successfully. No output."
-                                    : "Program output is unavailable because compilation failed."}
+                        ? `Compile your ${language} program to view its output here.`
+                        : compilationFailed
+                            ? "Program execution skipped because compilation failed."
+                            : hasRuntimeError
+                                ? "Program execution failed. See Runtime Diagnostics above."
+                                : programOutput.length > 0
+                                    ? programOutput.join("\n")
+                                    : completed
+                                        ? "Program executed successfully. No output."
+                                        : "Program output is unavailable because compilation failed."}
                 </pre>
             </section>
 
+            {/* FOOTER */}
+
             <footer className="footer">
-                Java Compiler · Compiler Construction
+                {language} Compiler · Compiler Construction
             </footer>
+
         </main>
     );
 }

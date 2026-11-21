@@ -1,4 +1,5 @@
 
+import codegen.BytecodeGenerator;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -16,8 +17,11 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class Main {
 
@@ -30,6 +34,18 @@ public class Main {
             this.type = type;
             this.lexeme = lexeme;
             this.line = line;
+        }
+    }
+
+    private static class ProcessResult {
+        int exitCode;
+        String stdout;
+        String stderr;
+
+        ProcessResult(int exitCode, String stdout, String stderr) {
+            this.exitCode = exitCode;
+            this.stdout = stdout;
+            this.stderr = stderr;
         }
     }
 
@@ -68,15 +84,27 @@ public class Main {
 
             String source = extractJsonString(body, "source");
             String input = extractJsonString(body, "input");
+            String language = extractJsonString(body, "language");
+            if (language == null) language = "Java";
 
             if (source == null || source.trim().isEmpty()) {
                 throw new RuntimeException(
-                    "Please enter some Java source code."
+                    "Please enter " + language + " source code."
                 );
             }
 
+            if (!language.equalsIgnoreCase("Java")) {
+                String externalResponse =
+                    compileExternalLanguage(language, source, input);
+                sendResponse(exchange, 200, externalResponse);
+                return;
+            }
+
+            // Phase 1: Lexical Analysis
+            List<TokenInfo> tokens = tokenize(source);
             List<TokenInfo> tokens = tokenize(source);
 
+            // Phase 2: Syntax Analysis
             JavaLexer lexer = new JavaLexer(new StringReader(source));
             JavaParser parser = new JavaParser(lexer);
 
@@ -89,23 +117,61 @@ public class Main {
                 );
             }
 
+            // Phase 3: Semantic Analysis
             SemanticAnalyzer semantic = new SemanticAnalyzer();
             List<String> errors = semantic.analyze(ast);
 
             List<symboltable.Symbol> symbols =
                 semantic.getSymbolTable().getAllSymbols();
 
-            List<String> tacInstructions = List.of();
-            List<String> programOutput = List.of();
+            List<String> tacInstructions = new ArrayList<>();
+            List<String> optimizedTac = new ArrayList<>();
+            List<String> programOutput = new ArrayList<>();
             List<String> runtimeErrors = new ArrayList<>();
 
-            if (errors.isEmpty()) {
-                TACGenerator tac = new TACGenerator();
-                tacInstructions = tac.generate(ast);
+            String generatedBytecode = "";
+            String generatedClassFile = "";
+            String codeGenerationError = "";
 
+            boolean intermediateCompleted = false;
+            boolean optimizationCompleted = false;
+            boolean codeGenerationCompleted = false;
+
+            if (errors.isEmpty()) {
+
+                TACGenerator tac = new TACGenerator();
+
+                // Phase 4: Intermediate Code Generation
+                tacInstructions = tac.generate(ast);
+                intermediateCompleted = true;
+
+                // Phase 5: Code Optimization
+                optimizedTac = tac.optimize(ast);
+                optimizationCompleted = true;
+
+                // Phase 6: JVM Bytecode Generation
+                try {
+                    BytecodeGenerator generator =
+                        new BytecodeGenerator();
+
+                    BytecodeGenerator.Result result =
+                        generator.generate(optimizedTac);
+
+                    generatedBytecode = result.bytecode;
+                    generatedClassFile = result.filePath;
+                    codeGenerationCompleted = true;
+
+                } catch (Exception e) {
+                    codeGenerationError = e.getMessage() == null
+                        ? "JVM bytecode generation failed."
+                        : e.getMessage();
+                }
+
+                // Execute original AST to preserve Scanner support.
                 try {
                     ProgramExecutor executor = new ProgramExecutor();
                     programOutput = executor.execute(ast, input);
+
                 } catch (RuntimeException e) {
                     runtimeErrors.add(
                         e.getMessage() == null
@@ -121,13 +187,21 @@ public class Main {
                 symbols,
                 errors,
                 tacInstructions,
+                optimizedTac,
                 programOutput,
-                runtimeErrors
+                runtimeErrors,
+                intermediateCompleted,
+                optimizationCompleted,
+                generatedBytecode,
+                generatedClassFile,
+                codeGenerationCompleted,
+                codeGenerationError
             );
 
             sendResponse(exchange, 200, response);
 
         } catch (Exception e) {
+
             String message = e.getMessage() == null
                 ? "Internal Compiler Error: Unknown error."
                 : e.getMessage();
@@ -139,34 +213,296 @@ public class Main {
                 + "\"errorType\":" + jsonString(category) + ","
                 + "\"errors\":[" + jsonString(message) + "],"
                 + "\"tokens\":[],\"ast\":null,\"symbols\":[],"
-                + "\"tac\":[],\"programOutput\":[],"
-                + "\"runtimeErrors\":[]}";
+                + "\"tac\":[],\"optimizedTac\":[],"
+                + "\"programOutput\":[],\"runtimeErrors\":[],"
+                + "\"intermediateCompleted\":false,"
+                + "\"optimizationCompleted\":false,"
+                + "\"bytecode\":\"\","
+                + "\"generatedClassFile\":\"\","
+                + "\"codeGenerationCompleted\":false,"
+                + "\"codeGenerationError\":\"\"}";
 
             sendResponse(exchange, 200, response);
         }
     }
 
+    private static String compileExternalLanguage(
+            String language, String source, String input) throws IOException {
+
+        Path root = findRepositoryRoot();
+        Path tempSource = Files.createTempFile(
+            "compiler-" + language.toLowerCase(Locale.ROOT),
+            language.equalsIgnoreCase("C++") ? ".cpp" : ".c"
+        );
+        Files.writeString(tempSource, source, StandardCharsets.UTF_8);
+
+        try {
+            if (language.equalsIgnoreCase("C")) {
+                Path cDirectory = root.resolve("compiler-construction/backend/c");
+                runProcess(List.of("make", "-C", cDirectory.toString()),
+                           "", cDirectory);
+                ProcessResult result = runProcess(
+                    List.of(cDirectory.resolve("c-compiler").toString(),
+                             "--run", tempSource.toString()),
+                    input,
+                    cDirectory
+                );
+                return buildCResponse(result);
+            }
+
+            if (language.equalsIgnoreCase("C++")) {
+                Path cppDirectory =
+                    root.resolve("compiler-construction/backend/cpp");
+                Path binary = cppDirectory.resolve("build/cpp_compiler");
+                if (!Files.isExecutable(binary)) {
+                    runProcess(List.of(
+                        "cmake", "-S", cppDirectory.toString(),
+                        "-B", cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                    runProcess(List.of(
+                        "cmake", "--build",
+                        cppDirectory.resolve("build").toString()
+                    ), "", cppDirectory);
+                }
+                ProcessResult result = runProcess(
+                    List.of(binary.toString(), tempSource.toString()),
+                    input,
+                    cppDirectory
+                );
+                if (result.exitCode == 0 ||
+                    result.stdout.trim().startsWith("{")) {
+                    return result.stdout;
+                }
+                return "{\"success\":false,\"errors\":["
+                    + jsonString(result.stderr.isBlank()
+                        ? "C++ compilation failed." : result.stderr.trim())
+                    + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+                    + "\"tac\":[],\"optimized_tac\":[],\"code\":[],"
+                    + "\"programOutput\":[],\"runtimeErrors\":[]}";
+            }
+        } finally {
+            Files.deleteIfExists(tempSource);
+        }
+
+        return "{\"success\":false,\"errors\":["
+            + jsonString("Unsupported language: " + language)
+            + "],\"tokens\":[],\"ast\":null,\"symbols\":[],"
+            + "\"tac\":[],\"programOutput\":[],\"runtimeErrors\":[]}";
+    }
+
+    private static String buildCResponse(ProcessResult result) {
+        String stdout = result.stdout;
+        boolean successful = result.exitCode == 0
+            && stdout.contains("Status: compiled and executed successfully");
+
+        String tokenSection = extractSection(
+            stdout, "=== 1. LEXICAL ANALYSIS: TOKENS ===",
+            "\n=== 2.");
+        String astSection = extractSection(
+            stdout, "=== 2. SYNTAX ANALYSIS: AST ===",
+            "\n=== 3.");
+        String symbolSection = extractSection(
+            stdout, "=== 3. SEMANTIC ANALYSIS: SYMBOLS ===",
+            "\n=== 4.");
+        String tacSection = extractSection(
+            stdout, "=== 5. INTERMEDIATE CODE GENERATION: TAC ===",
+            "\n=== 6.");
+        String diagnosticSection = extractSection(
+            stdout, "=== DIAGNOSTICS ===", "\n=== 6.");
+
+        List<String> errors = new ArrayList<>();
+        if (!diagnosticSection.isEmpty()) {
+            for (String line : diagnosticSection.split("\\R")) {
+                if (!line.trim().isEmpty()) errors.add(line.trim());
+            }
+        } else if (result.stderr != null && !result.stderr.trim().isEmpty()
+                   && result.exitCode != 0) {
+            errors.add(result.stderr.trim());
+        }
+
+        StringBuilder output = new StringBuilder();
+        output.append("{\"success\":").append(successful).append(",");
+        output.append("\"tokens\":").append(parseCTokens(tokenSection)).append(",");
+        output.append("\"ast\":").append(astSection.isEmpty()
+            ? "null" : jsonString(astSection.trim())).append(",");
+        output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
+        output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
+        output.append("\"optimized_tac\":[],");
+        output.append("\"code\":[],");
+        output.append("\"errors\":").append(stringListJson(errors)).append(",");
+        output.append("\"programOutput\":").append(parseCProgramOutput(stdout)).append(",");
+        output.append("\"runtimeErrors\":[]}");
+        return output.toString();
+    }
+
+    private static String extractSection(
+            String text, String startMarker, String endMarker) {
+        int start = text.indexOf(startMarker);
+        if (start < 0) return "";
+        start += startMarker.length();
+        int end = text.indexOf(endMarker, start);
+        if (end < 0) end = text.length();
+        return text.substring(start, end).trim();
+    }
+
+    private static String parseCTokens(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.split("\\t", -1);
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"type\":").append(jsonString(columns[0].trim()))
+                    .append(",\"lexeme\":").append(jsonString(columns[1].trim()))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(
+                        columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCSymbols(String section) {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                String[] columns = line.trim().split("\\s+");
+                if (columns.length < 3) continue;
+                if (!first) json.append(",");
+                first = false;
+                json.append("{\"name\":").append(jsonString(columns[0]))
+                    .append(",\"type\":").append(jsonString(columns[1]))
+                    .append(",\"line\":");
+                try {
+                    json.append(Integer.parseInt(columns[2].replace("line", "").trim()));
+                } catch (NumberFormatException e) {
+                    json.append(1);
+                }
+                json.append("}");
+            }
+        }
+        return json.append("]").toString();
+    }
+
+    private static String parseCTac(String section) {
+        List<String> lines = new ArrayList<>();
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String parseCProgramOutput(String stdout) {
+        int start = stdout.indexOf("Program output:");
+        if (start < 0) return "[]";
+        start += "Program output:".length();
+        int end = stdout.indexOf("Status:", start);
+        if (end < 0) end = stdout.length();
+        String text = stdout.substring(start, end).trim();
+        List<String> lines = new ArrayList<>();
+        if (!text.isEmpty()) {
+            for (String line : text.split("\\R")) {
+                if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String stringListJson(List<String> values) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) json.append(",");
+            json.append(jsonString(values.get(i)));
+        }
+        return json.append("]").toString();
+    }
+
+    private static Path findRepositoryRoot() {
+        Path current = Path.of("").toAbsolutePath();
+        while (current != null) {
+            if (Files.isDirectory(current.resolve("compiler-construction/backend/c"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return Path.of("").toAbsolutePath();
+    }
+
+    private static ProcessResult runProcess(
+            List<String> command, String input, Path workingDirectory)
+            throws IOException {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.directory(workingDirectory.toFile());
+        builder.redirectErrorStream(false);
+        Process process = builder.start();
+        if (input != null && !input.isEmpty()) {
+            try (var stream = process.getOutputStream()) {
+                stream.write(input.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+        } else {
+            process.getOutputStream().close();
+        }
+        String stdout;
+        String stderr;
+        try (var out = process.getInputStream()) {
+            stdout = new String(out.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        try (var err = process.getErrorStream()) {
+            stderr = new String(err.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int exitCode;
+        try {
+            exitCode = process.waitFor();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ProcessResult(1, "", "Process interrupted.");
+        }
+        return new ProcessResult(exitCode, stdout, stderr);
+    }
+
     private static String classifyError(String message) {
+
         String lower = message.toLowerCase();
 
-        if (lower.contains("lexical") || lower.contains("unexpected character")) {
+        if (lower.contains("lexical")
+                || lower.contains("unexpected character")) {
             return "Lexical Error";
         }
-        if (lower.contains("syntax") || lower.contains("parse")
+
+        if (lower.contains("syntax")
+                || lower.contains("parse")
                 || lower.contains("unexpected token")
                 || lower.contains("can't recover")) {
             return "Syntax Error";
         }
-        if (lower.contains("semantic") || lower.contains("undeclared")
+
+        if (lower.contains("semantic")
+                || lower.contains("undeclared")
+                || lower.contains("not declared")
                 || lower.contains("already declared")
-                || lower.contains("type mismatch")) {
+                || lower.contains("type mismatch")
+                || lower.contains("incompatible")) {
             return "Semantic Error";
         }
-        if (lower.contains("runtime") || lower.contains("division by zero")
+
+        if (lower.contains("runtime")
+                || lower.contains("division by zero")
                 || lower.contains("no input available")
                 || lower.contains("invalid input")) {
             return "Runtime Error";
         }
+
         return "Compiler Error";
     }
 
@@ -177,13 +513,15 @@ public class Main {
         JavaLexer lexer = new JavaLexer(new StringReader(source));
 
         while (true) {
+
             Symbol token = lexer.next_token();
 
             if (token.sym == sym.EOF) break;
 
             String tokenName = "UNKNOWN";
 
-            if (token.sym >= 0 && token.sym < sym.terminalNames.length) {
+            if (token.sym >= 0
+                    && token.sym < sym.terminalNames.length) {
                 tokenName = sym.terminalNames[token.sym];
             }
 
@@ -207,14 +545,24 @@ public class Main {
             List<symboltable.Symbol> symbols,
             List<String> errors,
             List<String> tac,
+            List<String> optimizedTac,
             List<String> programOutput,
-            List<String> runtimeErrors) {
+            List<String> runtimeErrors,
+            boolean intermediateCompleted,
+            boolean optimizationCompleted,
+            String bytecode,
+            String generatedClassFile,
+            boolean codeGenerationCompleted,
+            String codeGenerationError) {
 
         StringBuilder json = new StringBuilder();
 
         json.append("{\"success\":")
-            .append(errors.isEmpty() && runtimeErrors.isEmpty())
-            .append(",\"tokens\":[");
+            .append(errors.isEmpty()
+                && runtimeErrors.isEmpty()
+                && codeGenerationError.isEmpty());
+
+        json.append(",\"tokens\":[");
 
         for (int i = 0; i < tokens.size(); i++) {
             TokenInfo token = tokens.get(i);
@@ -251,6 +599,27 @@ public class Main {
         json.append(",\"tac\":");
         appendStringList(json, tac);
 
+        json.append(",\"optimizedTac\":");
+        appendStringList(json, optimizedTac);
+
+        json.append(",\"intermediateCompleted\":")
+            .append(intermediateCompleted);
+
+        json.append(",\"optimizationCompleted\":")
+            .append(optimizationCompleted);
+
+        json.append(",\"bytecode\":")
+            .append(jsonString(bytecode));
+
+        json.append(",\"generatedClassFile\":")
+            .append(jsonString(generatedClassFile));
+
+        json.append(",\"codeGenerationCompleted\":")
+            .append(codeGenerationCompleted);
+
+        json.append(",\"codeGenerationError\":")
+            .append(jsonString(codeGenerationError));
+
         json.append(",\"programOutput\":");
         appendStringList(json, programOutput);
 
@@ -263,6 +632,7 @@ public class Main {
     }
 
     private static void appendAst(StringBuilder json, ASTNode node) {
+
         if (node == null) {
             json.append("null");
             return;
@@ -272,7 +642,8 @@ public class Main {
             .append("\"type\":").append(jsonString(node.getType()))
             .append(",\"value\":")
             .append(node.getValue() == null
-                ? "null" : jsonString(node.getValue()))
+                ? "null"
+                : jsonString(node.getValue()))
             .append(",\"line\":").append(node.getLine())
             .append(",\"children\":[");
 
@@ -300,23 +671,40 @@ public class Main {
     }
 
     private static String jsonString(String value) {
+
         if (value == null) return "null";
 
         StringBuilder result = new StringBuilder("\"");
 
         for (char c : value.toCharArray()) {
-            switch (c) {
-                case '"': result.append("\\\""); break;
-                case '\\': result.append("\\\\"); break;
-                case '\n': result.append("\\n"); break;
-                case '\r': result.append("\\r"); break;
-                case '\t': result.append("\\t"); break;
-                case '\b': result.append("\\b"); break;
-                case '\f': result.append("\\f"); break;
 
+            switch (c) {
+                case '"':
+                    result.append("\\\"");
+                    break;
+                case '\\':
+                    result.append("\\\\");
+                    break;
+                case '\n':
+                    result.append("\\n");
+                    break;
+                case '\r':
+                    result.append("\\r");
+                    break;
+                case '\t':
+                    result.append("\\t");
+                    break;
+                case '\b':
+                    result.append("\\b");
+                    break;
+                case '\f':
+                    result.append("\\f");
+                    break;
                 default:
                     if (c < 32) {
-                        result.append(String.format("\\u%04x", (int) c));
+                        result.append(
+                            String.format("\\u%04x", (int) c)
+                        );
                     } else {
                         result.append(c);
                     }
@@ -326,7 +714,9 @@ public class Main {
         return result.append("\"").toString();
     }
 
-    private static String extractJsonString(String body, String field) {
+    private static String extractJsonString(
+            String body, String field) {
+
         String key = "\"" + field + "\"";
         int keyIndex = body.indexOf(key);
 
@@ -334,42 +724,73 @@ public class Main {
             return field.equals("input") ? "" : null;
         }
 
-        int index = body.indexOf(':', keyIndex + key.length()) + 1;
+        int colonIndex = body.indexOf(
+            ':', keyIndex + key.length()
+        );
+
+        if (colonIndex < 0) {
+            throw new RuntimeException(
+                "Invalid request: missing value for " + field + "."
+            );
+        }
+
+        int index = colonIndex + 1;
 
         while (index < body.length()
                 && Character.isWhitespace(body.charAt(index))) {
             index++;
         }
 
-        if (index >= body.length() || body.charAt(index) != '"') {
+        if (index >= body.length()
+                || body.charAt(index) != '"') {
             throw new RuntimeException(
                 "Invalid request: " + field + " must be a string."
             );
         }
 
         index++;
+
         StringBuilder value = new StringBuilder();
 
         while (index < body.length()) {
+
             char c = body.charAt(index++);
 
-            if (c == '"') return value.toString();
+            if (c == '"') {
+                return value.toString();
+            }
 
             if (c == '\\') {
+
                 if (index >= body.length()) break;
 
                 char escaped = body.charAt(index++);
 
                 switch (escaped) {
-                    case 'n': value.append('\n'); break;
-                    case 'r': value.append('\r'); break;
-                    case 't': value.append('\t'); break;
-                    case 'b': value.append('\b'); break;
-                    case 'f': value.append('\f'); break;
-                    case '"': value.append('"'); break;
-                    case '\\': value.append('\\'); break;
-                    case '/': value.append('/'); break;
-
+                    case 'n':
+                        value.append('\n');
+                        break;
+                    case 'r':
+                        value.append('\r');
+                        break;
+                    case 't':
+                        value.append('\t');
+                        break;
+                    case 'b':
+                        value.append('\b');
+                        break;
+                    case 'f':
+                        value.append('\f');
+                        break;
+                    case '"':
+                        value.append('"');
+                        break;
+                    case '\\':
+                        value.append('\\');
+                        break;
+                    case '/':
+                        value.append('/');
+                        break;
                     case 'u':
                         if (index + 4 > body.length()) {
                             throw new RuntimeException(
@@ -389,12 +810,12 @@ public class Main {
 
                         index += 4;
                         break;
-
                     default:
                         throw new RuntimeException(
                             "Invalid JSON escape in request."
                         );
                 }
+
             } else {
                 value.append(c);
             }
@@ -409,17 +830,20 @@ public class Main {
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Origin", "*"
         );
+
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Methods", "POST, OPTIONS"
         );
+
         exchange.getResponseHeaders().set(
             "Access-Control-Allow-Headers", "Content-Type"
         );
     }
 
     private static void sendResponse(
-            HttpExchange exchange, int status, String response)
-            throws IOException {
+            HttpExchange exchange,
+            int status,
+            String response) throws IOException {
 
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
 
