@@ -217,9 +217,10 @@ int main(int argc, char **argv) {
     if (success && run) {
         printf("\n=== 6. CODE GENERATION AND EXECUTION ===\n");
         printf("Target: system C compiler (cc)\n");
+        char *generated = runtime_source(processed_source);
+        printf("Generated C:\n%s\n", generated);
         printf("Program output:\n");
         fflush(stdout);
-        char *generated = runtime_source(processed_source);
         int run_status = run_compiled_source(generated);
         free(generated);
         if (run_status != 0) {

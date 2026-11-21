@@ -307,6 +307,11 @@ public class Main {
         String tacSection = extractSection(
             stdout, "=== 5. INTERMEDIATE CODE GENERATION: TAC ===",
             "\n=== 6.");
+        String optimizedAstSection = extractSection(
+            stdout, "=== 4. CODE OPTIMIZATION: OPTIMIZED AST ===",
+            "\n=== 5.");
+        String generatedCodeSection = extractSection(
+            stdout, "Generated C:", "\nProgram output:");
         String diagnosticSection = extractSection(
             stdout, "=== DIAGNOSTICS ===", "\n=== 6.");
 
@@ -327,8 +332,12 @@ public class Main {
             ? "null" : jsonString(astSection.trim())).append(",");
         output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
         output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
-        output.append("\"optimized_tac\":[],");
-        output.append("\"code\":[],");
+        output.append("\"optimized_tac\":").append(
+            tacSection.isEmpty()
+                ? "[]"
+                : parseCTac(tacSection)).append(",");
+        output.append("\"code\":").append(parseGeneratedCode(
+            generatedCodeSection)).append(",");
         output.append("\"errors\":").append(stringListJson(errors)).append(",");
         output.append("\"programOutput\":").append(parseCProgramOutput(stdout)).append(",");
         output.append("\"runtimeErrors\":[]}");
@@ -397,6 +406,16 @@ public class Main {
         if (!section.isEmpty()) {
             for (String line : section.split("\\R")) {
                 if (!line.trim().isEmpty()) lines.add(line.trim());
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String parseGeneratedCode(String section) {
+        List<String> lines = new ArrayList<>();
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                lines.add(line);
             }
         }
         return stringListJson(lines);

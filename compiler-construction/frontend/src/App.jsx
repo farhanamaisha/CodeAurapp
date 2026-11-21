@@ -22,12 +22,11 @@ int main(void) {
     return 0;
 }`,
 "C++": `#include <iostream>
-using namespace std;
 
 int main() {
     int a = 10;
     int b = 20;
-    cout << a + b << endl;
+    cout << a + b;
     return 0;
 }`
 };
@@ -264,7 +263,7 @@ export default function App() {
                     className="input-editor"
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder={"Example:\n25\nFarhana"}
+                    placeholder={"Example:\n25"}
                 />
             </section>
 
