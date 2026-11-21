@@ -366,6 +366,10 @@ th {
     gap: 16px;
 }
 
+.console-grid.console-output-only {
+    grid-template-columns: 1fr;
+}
+
 .console-pane {
     min-width: 0;
 }

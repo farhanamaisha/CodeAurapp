@@ -83,12 +83,20 @@ export default function App() {
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
     const [outputModalOpen, setOutputModalOpen] = useState(false);
+    const [inputSubmitted, setInputSubmitted] = useState(false);
     const lineNumbersRef = useRef(null);
     const lineCount = source.split("\n").length;
     const lineNumbers = Array.from(
         { length: lineCount },
         (_, index) => index + 1
     ).join("\n");
+
+    const hasUserInput =
+        language === "Java"
+            ? /\bScanner\s*\(|System\.in\b/.test(source)
+            : language === "C"
+                ? /\bscanf\s*\(/.test(source)
+                : /\bcin\s*(?:>>)/.test(source);
 
     useEffect(() => {
         if (!outputModalOpen) return undefined;
@@ -101,10 +109,18 @@ export default function App() {
         return () => document.removeEventListener("keydown", handleEscape);
     }, [outputModalOpen]);
 
-    async function compileCode() {
+    async function compileCode(runWithInput = false) {
+        setOutputModalOpen(true);
+
+        if (hasUserInput && !runWithInput) {
+            setInputSubmitted(false);
+            setResult(null);
+            return;
+        }
+
         setLoading(true);
         setResult(null);
-        setOutputModalOpen(true);
+        setInputSubmitted(true);
 
         try {
             const response = await fetch("/api/compile", {
@@ -232,6 +248,7 @@ export default function App() {
                             setSource(starterCode[nextLanguage]);
                             setInput("");
                             setResult(null);
+                            setInputSubmitted(false);
                         }}
                     >
                         <option value="Java">Java</option>
@@ -252,7 +269,7 @@ export default function App() {
 
                     <button
                         className="run-button"
-                        onClick={compileCode}
+                        onClick={() => compileCode(false)}
                         disabled={loading || !source.trim()}
                     >
                         {loading ? "Compiling..." : `▶ Compile ${language}`}
@@ -271,7 +288,11 @@ export default function App() {
                         className="code-editor"
                         spellCheck="false"
                         value={source}
-                        onChange={e => setSource(e.target.value)}
+                        onChange={e => {
+                            setSource(e.target.value);
+                            setResult(null);
+                            setInputSubmitted(false);
+                        }}
                         onScroll={e => {
                             if (lineNumbersRef.current) {
                                 lineNumbersRef.current.scrollTop =
@@ -602,27 +623,37 @@ export default function App() {
                             </button>
                         </div>
 
-                        <div className="console-grid">
-                            <div className="console-pane">
-                                <div className="console-heading">
-                                    <h3>Standard Input</h3>
-                                    <span>stdin</span>
+                        <div className={`console-grid${hasUserInput ? "" : " console-output-only"}`}>
+                            {hasUserInput && (
+                                <div className="console-pane">
+                                    <div className="console-heading">
+                                        <h3>Standard Input</h3>
+                                        <span>stdin</span>
+                                    </div>
+                                    <textarea
+                                        className="console-input"
+                                        value={input}
+                                        onChange={event => {
+                                            setInput(event.target.value);
+                                            setInputSubmitted(false);
+                                            setResult(null);
+                                        }}
+                                        placeholder={"Example:\n25"}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="rerun-button"
+                                        onClick={() => compileCode(true)}
+                                        disabled={
+                                            loading ||
+                                            !source.trim() ||
+                                            !input.trim()
+                                        }
+                                    >
+                                        {loading ? "Running..." : "Run with Input"}
+                                    </button>
                                 </div>
-                                <textarea
-                                    className="console-input"
-                                    value={input}
-                                    onChange={event => setInput(event.target.value)}
-                                    placeholder={"Example:\n25"}
-                                />
-                                <button
-                                    type="button"
-                                    className="rerun-button"
-                                    onClick={compileCode}
-                                    disabled={loading || !source.trim()}
-                                >
-                                    {loading ? "Running..." : "Run with Input"}
-                                </button>
-                            </div>
+                            )}
 
                             <div className="console-pane">
                                 <div className="console-heading">
@@ -632,17 +663,19 @@ export default function App() {
                                 <pre className="console-output">
                                     {loading
                                         ? "Compiling and running..."
-                                        : !result
-                                            ? "No program output yet."
-                                            : compilationFailed
-                                                ? "Program execution skipped because compilation failed."
-                                                : hasRuntimeError
-                                                    ? "Program execution failed."
-                                                    : programOutput.length > 0
-                                                        ? programOutput.join("\n")
-                                                        : completed
-                                                            ? "Program executed successfully. No output."
-                                                            : "Program output is unavailable."}
+                                        : hasUserInput && !inputSubmitted
+                                            ? "Enter the required input, then run the program."
+                                            : !result
+                                                ? "No program output yet."
+                                                : compilationFailed
+                                                    ? "Program execution skipped because compilation failed."
+                                                    : hasRuntimeError
+                                                        ? "Program execution failed."
+                                                        : programOutput.length > 0
+                                                            ? programOutput.join("\n")
+                                                            : completed
+                                                                ? "Program executed successfully. No output."
+                                                                : "Program output is unavailable."}
                                 </pre>
                             </div>
                         </div>
