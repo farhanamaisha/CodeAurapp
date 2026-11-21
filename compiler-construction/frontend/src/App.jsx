@@ -924,7 +924,19 @@ export default function App() {
             {/* FOOTER */}
 
             <footer className="footer">
-                {language} Compiler · Compiler Construction
+                <div className="footer-brand">
+                    <span className="footer-status-dot" aria-hidden="true"></span>
+                    <strong>{language} Compiler</strong>
+                    <span>Compiler Construction Workspace</span>
+                </div>
+                <div className="footer-meta">
+                    <span>{activeFileId
+                        ? files.find(file => file.id === activeFileId)?.name
+                        : "No file selected"}</span>
+                    <span>UTF-8</span>
+                    <span>{lineCount} line{lineCount === 1 ? "" : "s"}</span>
+                    <span>Ready</span>
+                </div>
             </footer>
 
         </main>

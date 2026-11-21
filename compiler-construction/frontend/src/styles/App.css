@@ -699,6 +699,44 @@ tbody tr:hover {
     color: #8790a0;
 }
 
+.footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 8px 24px rgba(31, 41, 55, 0.04);
+    font-size: 12px;
+}
+
+.footer-brand,
+.footer-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.footer-brand strong {
+    color: var(--ink);
+}
+
+.footer-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22a77a;
+    box-shadow: 0 0 0 3px rgba(34, 167, 122, 0.12);
+}
+
+.footer-meta span {
+    border-left: 1px solid var(--line);
+    padding-left: 10px;
+}
+
 .header-actions,
 .file-tabs {
     display: flex;
@@ -977,5 +1015,16 @@ tbody tr:hover {
     .output-modal {
         border-radius: 14px;
         padding: 14px;
+    }
+
+    .footer {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .footer-meta {
+        width: 100%;
+        flex-wrap: wrap;
     }
 }
