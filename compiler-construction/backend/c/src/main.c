@@ -184,30 +184,40 @@ int main(int argc, char **argv) {
     TokenArray tokens = {0};
     DiagnosticArray diagnostics = {0};
     char *processed_source = NULL;
+    AstNode *ast = NULL;
     preprocess_source(source, source_path, &processed_source, &diagnostics);
     if (diagnostics.count == 0)
         lex_source(processed_source, &tokens, &diagnostics);
     printf("=== 1. LEXICAL ANALYSIS: TOKENS ===\n");
+    printf("Source code -> Tokens\n");
     for (size_t i = 0; i < tokens.count; i++)
         printf("%s\t%s\tline %d\n", token_type_name(tokens.items[i].type),
                tokens.items[i].lexeme, tokens.items[i].line);
     if (diagnostics.count == 0) {
-        AstNode *ast = parse_program(&tokens, &diagnostics);
+        ast = parse_program(&tokens, &diagnostics);
         if (diagnostics.count == 0) {
             printf("\n=== 2. SYNTAX ANALYSIS: AST ===\n");
+            printf("Tokens -> Abstract Syntax Tree (AST)\n");
             print_ast(ast, 0);
             analyze_semantics(ast, &diagnostics);
             if (diagnostics.count == 0) {
                 printf("\n=== 3. SEMANTIC ANALYSIS: SYMBOLS ===\n");
+                printf("AST -> Annotated AST + Symbol Table\n");
+                printf("\n=== SYMBOL TABLE ===\n");
                 print_symbols();
-                optimize_ast(ast);
-                printf("\n=== 4. CODE OPTIMIZATION: OPTIMIZED AST ===\n");
+                printf("\nSemantic Checks:\n");
+                printf("No semantic errors found.\n");
+                printf("\n=== 3.1 ANNOTATED AST ===\n");
                 print_ast(ast, 0);
-                printf("\n=== 5. INTERMEDIATE CODE GENERATION: TAC ===\n");
+                printf("\n=== 4. INTERMEDIATE CODE GENERATION: TAC ===\n");
+                printf("AST -> Three-Address Code (TAC)\n");
                 generate_tac(ast);
+                optimize_ast(ast);
+                printf("\n=== 5. CODE OPTIMIZATION: OPTIMIZED TAC ===\n");
+                printf("Intermediate Code -> Optimized Intermediate Code\n");
+                generate_optimized_tac(ast);
             }
         }
-        free_ast(ast);
     }
     bool success = diagnostics.count == 0;
     if (!success) {
@@ -215,10 +225,12 @@ int main(int argc, char **argv) {
         print_diagnostics(&diagnostics);
     }
     if (success && run) {
-        printf("\n=== 6. CODE GENERATION AND EXECUTION ===\n");
-        printf("Target: system C compiler (cc)\n");
         char *generated = runtime_source(processed_source);
-        printf("Generated C:\n%s\n", generated);
+        printf("\n=== 6. TARGET CODE GENERATION: ASSEMBLY CODE ===\n");
+        printf("Optimized Code -> Assembly / Machine Code\n");
+        printf("Assembly Code:\n");
+        generate_target_assembly(ast);
+        printf("\nExecution:\n");
         printf("Program output:\n");
         fflush(stdout);
         int run_status = run_compiled_source(generated);
@@ -230,9 +242,14 @@ int main(int argc, char **argv) {
             printf("Status: compiled and executed successfully\n");
         }
     } else if (success) {
-        printf("\n=== 6. CODE GENERATION ===\n");
-        printf("Not generated. Use ./c-compiler --run <source.c>\n");
+        char *generated = runtime_source(processed_source);
+        printf("\n=== 6. TARGET CODE GENERATION: ASSEMBLY CODE ===\n");
+        printf("Optimized Code -> Assembly \n");
+        printf("Assembly Code:\n");
+        generate_target_assembly(ast);
+        free(generated);
     }
+    free_ast(ast);
     free_symbols(); free_diagnostics(&diagnostics); free_tokens(&tokens);
     free(processed_source); free(source);
     return success ? EXIT_SUCCESS : EXIT_FAILURE;

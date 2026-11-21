@@ -11,7 +11,6 @@ Java: `public class Test {
     }
 }`,
 C: `#include <stdio.h>
-
 int main(void) {
     int a, b, sum;
 
@@ -604,6 +603,9 @@ export default function App() {
                                 : "Not completed"
                         }
                     >
+                        <p className="hint">
+                            Source code → Tokens
+                        </p>
                         {result.tokens ? (
                             <div className="table-wrapper">
                                 <table>
@@ -644,6 +646,9 @@ export default function App() {
                                 : "Not completed"
                         }
                     >
+                        <p className="hint">
+                            Tokens → Abstract Syntax Tree (AST)
+                        </p>
                         {result.ast ? (
                             <pre>
                                 {typeof result.ast === "string"
@@ -662,7 +667,11 @@ export default function App() {
                         title="Semantic Analysis"
                         status={semanticStatus}
                     >
+                        <p className="hint">
+                            AST → Annotated AST + Symbol Table
+                        </p>
                         {result.symbols?.length > 0 ? (
+                            <>
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -684,6 +693,15 @@ export default function App() {
                                     </tbody>
                                 </table>
                             </div>
+                            {result.annotatedAst && (
+                                <>
+                                    <p className="hint">
+                                        Annotated AST
+                                    </p>
+                                    <pre>{result.annotatedAst}</pre>
+                                </>
+                            )}
+                            </>
                         ) : (
                             <p>
                                 {semanticStatus === "Failed"
@@ -702,6 +720,9 @@ export default function App() {
                         title="Intermediate Code Generation"
                         status={intermediateStatus}
                     >
+                        <p className="hint">
+                            AST → Three-Address Code (TAC)
+                        </p>
                         {result.tac?.length > 0 ? (
                             <>
                                 <p className="hint">
@@ -724,6 +745,9 @@ export default function App() {
                         title="Code Optimization"
                         status={optimizationStatus}
                     >
+                        <p className="hint">
+                            Intermediate Code → Optimized Intermediate Code
+                        </p>
                         {optimizedTac.length > 0 ? (
                             <>
                                 <p className="hint">
@@ -760,10 +784,15 @@ export default function App() {
                         title={
                             language === "Java"
                                 ? "Target Code Generation (JVM Bytecode)"
-                                : "Code Generation"
+                                : language === "C"
+                                    ? "Target Code Generation (Assembly)"
+                                    : "Target Code Generation"
                         }
                         status={codeGenerationStatus}
                     >
+                        <p className="hint">
+                            Optimized Code → Assembly / Machine Code
+                        </p>
                         {result.codeGenerationCompleted === true ? (
                             <>
                                 <p className="hint">
