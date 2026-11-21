@@ -237,7 +237,11 @@ export default function App() {
         setInputSubmitted(true);
 
         try {
-            const response = await fetch("/api/compile", {
+            const apiUrl =
+                import.meta.env.VITE_API_URL ||
+                "/api/compile";
+
+            const response = await fetch(apiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ language, source, input })

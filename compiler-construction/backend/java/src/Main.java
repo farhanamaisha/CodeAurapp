@@ -50,14 +50,33 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
+        int port = 8080;
+        String portValue = System.getenv("PORT");
+        if (portValue != null && !portValue.isBlank()) {
+            port = Integer.parseInt(portValue);
+        }
+
         HttpServer server = HttpServer.create(
-            new InetSocketAddress("0.0.0.0", 8080), 0
+            new InetSocketAddress("0.0.0.0", port), 0
         );
 
+        server.createContext("/api/health", Main::handleHealth);
         server.createContext("/api/compile", Main::handleCompile);
         server.start();
 
-        System.out.println("Java Compiler API running on port 8080");
+        System.out.println("Java Compiler API running on port " + port);
+    }
+
+    private static void handleHealth(HttpExchange exchange)
+            throws IOException {
+        addCorsHeaders(exchange);
+        if (!exchange.getRequestMethod().equalsIgnoreCase("GET")) {
+            sendResponse(exchange, 405,
+                "{\"success\":false,\"errors\":[\"Method not allowed\"]}");
+            return;
+        }
+        sendResponse(exchange, 200,
+            "{\"success\":true,\"service\":\"compiler-api\"}");
     }
 
     private static void handleCompile(HttpExchange exchange)
@@ -333,8 +352,6 @@ public class Main {
         output.append("\"ast\":").append(astSection.isEmpty()
             ? "null" : jsonString(astSection.trim())).append(",");
         output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
-        output.append("\"annotatedAst\":").append(annotatedAstSection.isEmpty()
-            ? "null" : jsonString(annotatedAstSection.trim())).append(",");
         output.append("\"annotatedAst\":").append(annotatedAstSection.isEmpty()
             ? "null" : jsonString(annotatedAstSection.trim())).append(",");
         output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
