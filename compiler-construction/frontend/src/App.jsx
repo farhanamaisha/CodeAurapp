@@ -31,6 +31,12 @@ int main() {
 }`
 };
 
+const starterFiles = [
+    { id: "main-java", name: "Main.java", language: "Java", folderId: null, content: starterCode.Java },
+    { id: "main-c", name: "main.c", language: "C", folderId: null, content: starterCode.C },
+    { id: "main-cpp", name: "main.cpp", language: "C++", folderId: null, content: starterCode["C++"] }
+];
+
 function getErrorCategory(message) {
     const error = String(message).toLowerCase();
 
@@ -79,6 +85,9 @@ function Phase({ number, title, status, children }) {
 export default function App() {
     const [language, setLanguage] = useState("Java");
     const [source, setSource] = useState(starterCode.Java);
+    const [files, setFiles] = useState(starterFiles);
+    const [folders, setFolders] = useState([]);
+    const [activeFileId, setActiveFileId] = useState("main-java");
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -97,6 +106,112 @@ export default function App() {
             : language === "C"
                 ? /\bscanf\s*\(/.test(source)
                 : /\bcin\s*(?:>>)/.test(source);
+
+    function openFile(file) {
+        setActiveFileId(file.id);
+        setLanguage(file.language);
+        setSource(file.content);
+        setInput("");
+        setResult(null);
+        setInputSubmitted(false);
+    }
+
+    function updateActiveFile(content) {
+        setSource(content);
+        setFiles(currentFiles =>
+            currentFiles.map(file =>
+                file.id === activeFileId
+                    ? { ...file, content }
+                    : file
+            )
+        );
+        setResult(null);
+        setInputSubmitted(false);
+    }
+
+    function createFile() {
+        const name = window.prompt("File name (for example: program.c)");
+        if (!name?.trim()) return;
+
+        const cleanName = name.trim();
+        const extension = cleanName.split(".").pop()?.toLowerCase();
+        const fileLanguage =
+            extension === "c" ? "C"
+                : extension === "cpp" || extension === "cc" ? "C++"
+                    : "Java";
+        const file = {
+            id: `file-${Date.now()}`,
+            name: cleanName,
+            language: fileLanguage,
+            folderId: null,
+            content: ""
+        };
+
+        setFiles(currentFiles => [...currentFiles, file]);
+        openFile(file);
+    }
+
+    function createFolder() {
+        const name = window.prompt("Folder name");
+        if (!name?.trim()) return;
+        setFolders(currentFolders => [
+            ...currentFolders,
+            { id: `folder-${Date.now()}`, name: name.trim() }
+        ]);
+    }
+
+    function deleteFile(fileId) {
+        const file = files.find(item => item.id === fileId);
+        if (!file) return;
+        if (!window.confirm(`Delete "${file.name}"?`)) return;
+
+        const remainingFiles = files.filter(item => item.id !== fileId);
+        setFiles(remainingFiles);
+
+        if (activeFileId === fileId) {
+            if (remainingFiles.length > 0) {
+                openFile(remainingFiles[0]);
+            } else {
+                setActiveFileId(null);
+                setSource("");
+                setInput("");
+                setResult(null);
+                setInputSubmitted(false);
+            }
+        }
+    }
+
+    function deleteFolder(folderId) {
+        const folder = folders.find(item => item.id === folderId);
+        if (!folder) return;
+        const containedFiles = files.filter(file => file.folderId === folderId);
+
+        const message = containedFiles.length > 0
+            ? `Delete "${folder.name}" and ${containedFiles.length} contained file(s)?`
+            : `Delete "${folder.name}"?`;
+        if (!window.confirm(message)) return;
+
+        const remainingFolders = folders.filter(item => item.id !== folderId);
+        const remainingFiles = files.filter(file => file.folderId !== folderId);
+        setFolders(remainingFolders);
+        setFiles(remainingFiles);
+
+        const activeFileWasDeleted =
+            remainingFiles.length !== files.length &&
+            !remainingFiles.some(file => file.id === activeFileId);
+
+        if (activeFileWasDeleted) {
+            if (remainingFiles.length > 0) {
+                openFile(remainingFiles[0]);
+            } else {
+                setActiveFileId(null);
+                setSource("");
+                setInput("");
+                setResult(null);
+                setInputSubmitted(false);
+            }
+        }
+    }
 
     useEffect(() => {
         if (!outputModalOpen) return undefined;
@@ -237,27 +352,149 @@ export default function App() {
                     <h1>{language} Compiler</h1>
                     <p>Compiler Construction Project</p>
                 </div>
-
-                <label className="language-select">
-                    Language
-                    <select
-                        value={language}
-                        onChange={event => {
-                            const nextLanguage = event.target.value;
-                            setLanguage(nextLanguage);
-                            setSource(starterCode[nextLanguage]);
-                            setInput("");
-                            setResult(null);
-                            setInputSubmitted(false);
-                        }}
-                    >
-                        <option value="Java">Java</option>
-                        <option value="C">C</option>
-                        <option value="C++">C++</option>
-                    </select>
-                </label>
+                <div className="header-actions">
+                    <div className="file-tabs" aria-label="Open program files">
+                        {files.map(file => (
+                            <div
+                                key={file.id}
+                                className={`file-tab${file.id === activeFileId ? " active" : ""}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="open-file-tab"
+                                    onClick={() => openFile(file)}
+                                >
+                                    <span className="file-tab-icon">◻</span>
+                                    {file.name}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="close-file-tab"
+                                    onClick={() => deleteFile(file.id)}
+                                    title={`Delete ${file.name}`}
+                                    aria-label={`Delete file ${file.name}`}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                    <label className="language-select">
+                        Language
+                        <select
+                            value={language}
+                            onChange={event => {
+                                const nextLanguage = event.target.value;
+                                setLanguage(nextLanguage);
+                                setSource(starterCode[nextLanguage]);
+                                setFiles(currentFiles =>
+                                    currentFiles.map(file =>
+                                        file.id === activeFileId
+                                            ? {
+                                                ...file,
+                                                language: nextLanguage,
+                                                content: starterCode[nextLanguage]
+                                            }
+                                            : file
+                                    )
+                                );
+                                setInput("");
+                                setResult(null);
+                                setInputSubmitted(false);
+                            }}
+                        >
+                            <option value="Java">Java</option>
+                            <option value="C">C</option>
+                            <option value="C++">C++</option>
+                        </select>
+                    </label>
+                </div>
             </header>
 
+            <div className="workspace-layout">
+                <aside className="explorer" aria-label="File explorer">
+                    <div className="explorer-heading">
+                        <h2>Explorer</h2>
+                        <div className="explorer-actions">
+                            <button type="button" onClick={createFile} title="New file" aria-label="New file">＋</button>
+                            <button type="button" onClick={createFolder} title="New folder" aria-label="New folder">▣</button>
+                        </div>
+                    </div>
+
+                    <div className="explorer-tree">
+                        {folders.map(folder => (
+                            <div key={folder.id}>
+                                <div className="folder-row">
+                                    <span aria-hidden="true">▾</span>
+                                    <span className="folder-icon" aria-hidden="true">📁</span>
+                                    <span>{folder.name}</span>
+                                    <button
+                                        type="button"
+                                        className="delete-row-button"
+                                        onClick={() => deleteFolder(folder.id)}
+                                        title={`Delete ${folder.name}`}
+                                        aria-label={`Delete folder ${folder.name}`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                {files
+                                    .filter(file => file.folderId === folder.id)
+                                    .map(file => (
+                                        <div
+                                            key={file.id}
+                                            className={`file-row${file.id === activeFileId ? " active" : ""}`}
+                                        >
+                                            <button
+                                                type="button"
+                                                className="open-file-button"
+                                                onClick={() => openFile(file)}
+                                            >
+                                                <span aria-hidden="true">◇</span>
+                                                <span>{file.name}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="delete-row-button"
+                                                onClick={() => deleteFile(file.id)}
+                                                title={`Delete ${file.name}`}
+                                                aria-label={`Delete file ${file.name}`}
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                            </div>
+                        ))}
+
+                        {files.filter(file => file.folderId === null).map(file => (
+                            <div
+                                key={file.id}
+                                className={`file-row${file.id === activeFileId ? " active" : ""}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="open-file-button"
+                                    onClick={() => openFile(file)}
+                                >
+                                    <span className="file-icon" aria-hidden="true">▧</span>
+                                    <span>{file.name}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="delete-row-button"
+                                    onClick={() => deleteFile(file.id)}
+                                    title={`Delete ${file.name}`}
+                                    aria-label={`Delete file ${file.name}`}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </aside>
+
+                <div className="workspace-main">
             {/* SOURCE CODE EDITOR */}
 
             <section className="editor-section">
@@ -289,9 +526,7 @@ export default function App() {
                         spellCheck="false"
                         value={source}
                         onChange={e => {
-                            setSource(e.target.value);
-                            setResult(null);
-                            setInputSubmitted(false);
+                            updateActiveFile(e.target.value);
                         }}
                         onScroll={e => {
                             if (lineNumbersRef.current) {
@@ -682,6 +917,9 @@ export default function App() {
                     </section>
                 </div>
             )}
+
+                </div>
+            </div>
 
             {/* FOOTER */}
 
