@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import "./styles/App.css";
 
 const starterCode = {
@@ -82,6 +82,12 @@ export default function App() {
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
+    const lineNumbersRef = useRef(null);
+    const lineCount = source.split("\n").length;
+    const lineNumbers = Array.from(
+        { length: lineCount },
+        (_, index) => index + 1
+    ).join("\n");
 
     async function compileCode() {
         setLoading(true);
@@ -240,13 +246,28 @@ export default function App() {
                     </button>
                 </div>
 
-                <textarea
-                    className="code-editor"
-                    spellCheck="false"
-                    value={source}
-                    onChange={e => setSource(e.target.value)}
-                    placeholder={`Write ${language} code here...`}
-                />
+                <div className="code-editor-wrapper">
+                    <div
+                        className="line-numbers"
+                        ref={lineNumbersRef}
+                        aria-hidden="true"
+                    >
+                        <pre>{lineNumbers}</pre>
+                    </div>
+                    <textarea
+                        className="code-editor"
+                        spellCheck="false"
+                        value={source}
+                        onChange={e => setSource(e.target.value)}
+                        onScroll={e => {
+                            if (lineNumbersRef.current) {
+                                lineNumbersRef.current.scrollTop =
+                                    e.currentTarget.scrollTop;
+                            }
+                        }}
+                        placeholder={`Write ${language} code here...`}
+                    />
+                </div>
             </section>
 
             {/* STANDARD INPUT */}

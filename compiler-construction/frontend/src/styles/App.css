@@ -104,14 +104,47 @@ textarea {
     cursor: wait;
 }
 
-.code-editor {
+.code-editor-wrapper {
+    display: flex;
     width: 100%;
     min-height: 380px;
     margin-top: 18px;
-    padding: 18px;
-    resize: vertical;
+    overflow: hidden;
     border: 1px solid #374151;
     border-radius: 8px;
+    background: #111827;
+}
+
+.code-editor-wrapper:focus-within {
+    border-color: #3b82f6;
+}
+
+.line-numbers {
+    flex: 0 0 54px;
+    overflow: hidden;
+    border-right: 1px solid #263244;
+    background: #0d1320;
+    color: #748398;
+    user-select: none;
+}
+
+.line-numbers pre {
+    margin: 0;
+    padding: 18px 10px 18px 0;
+    text-align: right;
+    font-family: Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.code-editor {
+    flex: 1;
+    width: 100%;
+    min-height: 380px;
+    padding: 18px;
+    resize: vertical;
+    border: none;
+    border-radius: 0 8px 8px 0;
     background: #111827;
     color: #d1fae5;
     font-family: Consolas, monospace;
