@@ -509,7 +509,7 @@ export default function App() {
                         onClick={() => compileCode(false)}
                         disabled={loading || !source.trim()}
                     >
-                        {loading ? "Compiling..." : `▶ Compile ${language}`}
+                        {loading ? "Runing..." : `▶ Run ${language}`}
                     </button>
                 </div>
 
@@ -813,16 +813,6 @@ export default function App() {
             )}
 
             {/* PROGRAM OUTPUT */}
-            <section className="output-launcher">
-                <button
-                    type="button"
-                    className="output-button"
-                    onClick={() => setOutputModalOpen(true)}
-                >
-                    Open Program Output
-                </button>
-            </section>
-
             {outputModalOpen && (
                 <div
                     className="output-modal-backdrop"
