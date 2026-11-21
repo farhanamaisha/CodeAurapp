@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./styles/App.css";
 
 const starterCode = {
@@ -82,6 +82,7 @@ export default function App() {
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [outputModalOpen, setOutputModalOpen] = useState(false);
     const lineNumbersRef = useRef(null);
     const lineCount = source.split("\n").length;
     const lineNumbers = Array.from(
@@ -89,9 +90,21 @@ export default function App() {
         (_, index) => index + 1
     ).join("\n");
 
+    useEffect(() => {
+        if (!outputModalOpen) return undefined;
+
+        function handleEscape(event) {
+            if (event.key === "Escape") setOutputModalOpen(false);
+        }
+
+        document.addEventListener("keydown", handleEscape);
+        return () => document.removeEventListener("keydown", handleEscape);
+    }, [outputModalOpen]);
+
     async function compileCode() {
         setLoading(true);
         setResult(null);
+        setOutputModalOpen(true);
 
         try {
             const response = await fetch("/api/compile", {
@@ -268,24 +281,6 @@ export default function App() {
                         placeholder={`Write ${language} code here...`}
                     />
                 </div>
-            </section>
-
-            {/* STANDARD INPUT */}
-
-            <section className="editor-section">
-                <h2>Standard Input</h2>
-
-                <p className="hint">
-                    Enter the values your program will read (Scanner / scanf / cin).
-                    Separate values with spaces or new lines.
-                </p>
-
-                <textarea
-                    className="input-editor"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    placeholder={"Example:\n25"}
-                />
             </section>
 
             {/* COMPILATION RESULTS */}
@@ -562,24 +557,98 @@ export default function App() {
             )}
 
             {/* PROGRAM OUTPUT */}
-
-            <section className="panel">
-                <h3>Program Output</h3>
-
-                <pre className="output-placeholder">
-                    {!result
-                        ? `Compile your ${language} program to view its output here.`
-                        : compilationFailed
-                            ? "Program execution skipped because compilation failed."
-                            : hasRuntimeError
-                                ? "Program execution failed. See Runtime Diagnostics above."
-                                : programOutput.length > 0
-                                    ? programOutput.join("\n")
-                                    : completed
-                                        ? "Program executed successfully. No output."
-                                        : "Program output is unavailable because compilation failed."}
-                </pre>
+            <section className="output-launcher">
+                <button
+                    type="button"
+                    className="output-button"
+                    onClick={() => setOutputModalOpen(true)}
+                >
+                    Open Program Output
+                </button>
             </section>
+
+            {outputModalOpen && (
+                <div
+                    className="output-modal-backdrop"
+                    role="presentation"
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) {
+                            setOutputModalOpen(false);
+                        }
+                    }}
+                >
+                    <section
+                        className="output-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="output-modal-title"
+                    >
+                        <div className="output-modal-header">
+                            <div>
+                                <h2 id="output-modal-title">
+                                    Program Console
+                                </h2>
+                                <p className="hint">
+                                    {language} · Standard input and output
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                className="modal-close"
+                                onClick={() => setOutputModalOpen(false)}
+                                aria-label="Close program console"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="console-grid">
+                            <div className="console-pane">
+                                <div className="console-heading">
+                                    <h3>Standard Input</h3>
+                                    <span>stdin</span>
+                                </div>
+                                <textarea
+                                    className="console-input"
+                                    value={input}
+                                    onChange={event => setInput(event.target.value)}
+                                    placeholder={"Example:\n25"}
+                                />
+                                <button
+                                    type="button"
+                                    className="rerun-button"
+                                    onClick={compileCode}
+                                    disabled={loading || !source.trim()}
+                                >
+                                    {loading ? "Running..." : "Run with Input"}
+                                </button>
+                            </div>
+
+                            <div className="console-pane">
+                                <div className="console-heading">
+                                    <h3>Program Output</h3>
+                                    <span>stdout</span>
+                                </div>
+                                <pre className="console-output">
+                                    {loading
+                                        ? "Compiling and running..."
+                                        : !result
+                                            ? "No program output yet."
+                                            : compilationFailed
+                                                ? "Program execution skipped because compilation failed."
+                                                : hasRuntimeError
+                                                    ? "Program execution failed."
+                                                    : programOutput.length > 0
+                                                        ? programOutput.join("\n")
+                                                        : completed
+                                                            ? "Program executed successfully. No output."
+                                                            : "Program output is unavailable."}
+                                </pre>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            )}
 
             {/* FOOTER */}
 
