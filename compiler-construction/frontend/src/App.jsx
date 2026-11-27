@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./styles/App.css";
 
 const starterCode = {
@@ -11,7 +11,6 @@ Java: `public class Test {
     }
 }`,
 C: `#include <stdio.h>
-
 int main(void) {
     int a, b, sum;
 
@@ -22,15 +21,20 @@ int main(void) {
     return 0;
 }`,
 "C++": `#include <iostream>
-using namespace std;
 
 int main() {
     int a = 10;
     int b = 20;
-    cout << a + b << endl;
+    cout << a + b;
     return 0;
 }`
 };
+
+const starterFiles = [
+    { id: "main-java", name: "Main.java", language: "Java", folderId: null, content: starterCode.Java },
+    { id: "main-c", name: "main.c", language: "C", folderId: null, content: starterCode.C },
+    { id: "main-cpp", name: "main.cpp", language: "C++", folderId: null, content: starterCode["C++"] }
+];
 
 function getErrorCategory(message) {
     const error = String(message).toLowerCase();
@@ -80,16 +84,164 @@ function Phase({ number, title, status, children }) {
 export default function App() {
     const [language, setLanguage] = useState("Java");
     const [source, setSource] = useState(starterCode.Java);
+    const [files, setFiles] = useState(starterFiles);
+    const [folders, setFolders] = useState([]);
+    const [activeFileId, setActiveFileId] = useState("main-java");
     const [input, setInput] = useState("");
     const [result, setResult] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [outputModalOpen, setOutputModalOpen] = useState(false);
+    const [inputSubmitted, setInputSubmitted] = useState(false);
+    const lineNumbersRef = useRef(null);
+    const lineCount = source.split("\n").length;
+    const lineNumbers = Array.from(
+        { length: lineCount },
+        (_, index) => index + 1
+    ).join("\n");
 
-    async function compileCode() {
+    const hasUserInput =
+        language === "Java"
+            ? /\bScanner\s*\(|System\.in\b/.test(source)
+            : language === "C"
+                ? /\bscanf\s*\(/.test(source)
+                : /\bcin\s*(?:>>)/.test(source);
+
+    function openFile(file) {
+        setActiveFileId(file.id);
+        setLanguage(file.language);
+        setSource(file.content);
+        setInput("");
+        setResult(null);
+        setInputSubmitted(false);
+    }
+
+    function updateActiveFile(content) {
+        setSource(content);
+        setFiles(currentFiles =>
+            currentFiles.map(file =>
+                file.id === activeFileId
+                    ? { ...file, content }
+                    : file
+            )
+        );
+        setResult(null);
+        setInputSubmitted(false);
+    }
+
+    function createFile() {
+        const name = window.prompt("File name (for example: program.c)");
+        if (!name?.trim()) return;
+
+        const cleanName = name.trim();
+        const extension = cleanName.split(".").pop()?.toLowerCase();
+        const fileLanguage =
+            extension === "c" ? "C"
+                : extension === "cpp" || extension === "cc" ? "C++"
+                    : "Java";
+        const file = {
+            id: `file-${Date.now()}`,
+            name: cleanName,
+            language: fileLanguage,
+            folderId: null,
+            content: ""
+        };
+
+        setFiles(currentFiles => [...currentFiles, file]);
+        openFile(file);
+    }
+
+    function createFolder() {
+        const name = window.prompt("Folder name");
+        if (!name?.trim()) return;
+        setFolders(currentFolders => [
+            ...currentFolders,
+            { id: `folder-${Date.now()}`, name: name.trim() }
+        ]);
+    }
+
+    function deleteFile(fileId) {
+        const file = files.find(item => item.id === fileId);
+        if (!file) return;
+        if (!window.confirm(`Delete "${file.name}"?`)) return;
+
+        const remainingFiles = files.filter(item => item.id !== fileId);
+        setFiles(remainingFiles);
+
+        if (activeFileId === fileId) {
+            if (remainingFiles.length > 0) {
+                openFile(remainingFiles[0]);
+            } else {
+                setActiveFileId(null);
+                setSource("");
+                setInput("");
+                setResult(null);
+                setInputSubmitted(false);
+            }
+        }
+    }
+
+    function deleteFolder(folderId) {
+        const folder = folders.find(item => item.id === folderId);
+        if (!folder) return;
+        const containedFiles = files.filter(file => file.folderId === folderId);
+
+        const message = containedFiles.length > 0
+            ? `Delete "${folder.name}" and ${containedFiles.length} contained file(s)?`
+            : `Delete "${folder.name}"?`;
+        if (!window.confirm(message)) return;
+
+        const remainingFolders = folders.filter(item => item.id !== folderId);
+        const remainingFiles = files.filter(file => file.folderId !== folderId);
+        setFolders(remainingFolders);
+        setFiles(remainingFiles);
+
+        const activeFileWasDeleted =
+            remainingFiles.length !== files.length &&
+            !remainingFiles.some(file => file.id === activeFileId);
+
+        if (activeFileWasDeleted) {
+            if (remainingFiles.length > 0) {
+                openFile(remainingFiles[0]);
+            } else {
+                setActiveFileId(null);
+                setSource("");
+                setInput("");
+                setResult(null);
+                setInputSubmitted(false);
+            }
+        }
+    }
+
+    useEffect(() => {
+        if (!outputModalOpen) return undefined;
+
+        function handleEscape(event) {
+            if (event.key === "Escape") setOutputModalOpen(false);
+        }
+
+        document.addEventListener("keydown", handleEscape);
+        return () => document.removeEventListener("keydown", handleEscape);
+    }, [outputModalOpen]);
+
+    async function compileCode(runWithInput = false) {
+        setOutputModalOpen(true);
+
+        if (hasUserInput && !runWithInput) {
+            setInputSubmitted(false);
+            setResult(null);
+            return;
+        }
+
         setLoading(true);
         setResult(null);
+        setInputSubmitted(true);
 
         try {
-            const response = await fetch("/api/compile", {
+            const apiUrl =
+                import.meta.env.VITE_API_URL ||
+                "/api/compile";
+
+            const response = await fetch(apiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ language, source, input })
@@ -203,26 +355,149 @@ export default function App() {
                     <h1>{language} Compiler</h1>
                     <p>Compiler Construction Project</p>
                 </div>
-
-                <label className="language-select">
-                    Language
-                    <select
-                        value={language}
-                        onChange={event => {
-                            const nextLanguage = event.target.value;
-                            setLanguage(nextLanguage);
-                            setSource(starterCode[nextLanguage]);
-                            setInput("");
-                            setResult(null);
-                        }}
-                    >
-                        <option value="Java">Java</option>
-                        <option value="C">C</option>
-                        <option value="C++">C++</option>
-                    </select>
-                </label>
+                <div className="header-actions">
+                    <div className="file-tabs" aria-label="Open program files">
+                        {files.map(file => (
+                            <div
+                                key={file.id}
+                                className={`file-tab${file.id === activeFileId ? " active" : ""}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="open-file-tab"
+                                    onClick={() => openFile(file)}
+                                >
+                                    <span className="file-tab-icon">◻</span>
+                                    {file.name}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="close-file-tab"
+                                    onClick={() => deleteFile(file.id)}
+                                    title={`Delete ${file.name}`}
+                                    aria-label={`Delete file ${file.name}`}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                    <label className="language-select">
+                        Language
+                        <select
+                            value={language}
+                            onChange={event => {
+                                const nextLanguage = event.target.value;
+                                setLanguage(nextLanguage);
+                                setSource(starterCode[nextLanguage]);
+                                setFiles(currentFiles =>
+                                    currentFiles.map(file =>
+                                        file.id === activeFileId
+                                            ? {
+                                                ...file,
+                                                language: nextLanguage,
+                                                content: starterCode[nextLanguage]
+                                            }
+                                            : file
+                                    )
+                                );
+                                setInput("");
+                                setResult(null);
+                                setInputSubmitted(false);
+                            }}
+                        >
+                            <option value="Java">Java</option>
+                            <option value="C">C</option>
+                            <option value="C++">C++</option>
+                        </select>
+                    </label>
+                </div>
             </header>
 
+            <div className="workspace-layout">
+                <aside className="explorer" aria-label="File explorer">
+                    <div className="explorer-heading">
+                        <h2>Explorer</h2>
+                        <div className="explorer-actions">
+                            <button type="button" onClick={createFile} title="New file" aria-label="New file">＋</button>
+                            <button type="button" onClick={createFolder} title="New folder" aria-label="New folder">▣</button>
+                        </div>
+                    </div>
+
+                    <div className="explorer-tree">
+                        {folders.map(folder => (
+                            <div key={folder.id}>
+                                <div className="folder-row">
+                                    <span aria-hidden="true">▾</span>
+                                    <span className="folder-icon" aria-hidden="true">📁</span>
+                                    <span>{folder.name}</span>
+                                    <button
+                                        type="button"
+                                        className="delete-row-button"
+                                        onClick={() => deleteFolder(folder.id)}
+                                        title={`Delete ${folder.name}`}
+                                        aria-label={`Delete folder ${folder.name}`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                {files
+                                    .filter(file => file.folderId === folder.id)
+                                    .map(file => (
+                                        <div
+                                            key={file.id}
+                                            className={`file-row${file.id === activeFileId ? " active" : ""}`}
+                                        >
+                                            <button
+                                                type="button"
+                                                className="open-file-button"
+                                                onClick={() => openFile(file)}
+                                            >
+                                                <span aria-hidden="true">◇</span>
+                                                <span>{file.name}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="delete-row-button"
+                                                onClick={() => deleteFile(file.id)}
+                                                title={`Delete ${file.name}`}
+                                                aria-label={`Delete file ${file.name}`}
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                            </div>
+                        ))}
+
+                        {files.filter(file => file.folderId === null).map(file => (
+                            <div
+                                key={file.id}
+                                className={`file-row${file.id === activeFileId ? " active" : ""}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="open-file-button"
+                                    onClick={() => openFile(file)}
+                                >
+                                    <span className="file-icon" aria-hidden="true">▧</span>
+                                    <span>{file.name}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="delete-row-button"
+                                    onClick={() => deleteFile(file.id)}
+                                    title={`Delete ${file.name}`}
+                                    aria-label={`Delete file ${file.name}`}
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </aside>
+
+                <div className="workspace-main">
             {/* SOURCE CODE EDITOR */}
 
             <section className="editor-section">
@@ -234,12 +509,13 @@ export default function App() {
 
                     <button
                         className="run-button"
-                        onClick={compileCode}
+                        onClick={() => compileCode(false)}
                         disabled={loading || !source.trim()}
                     >
-                        {loading ? "Compiling..." : `▶ Compile ${language}`}
+                        {loading ? "Runing..." : `▶ Run ${language}`}
                     </button>
                 </div>
+
 
                 <textarea
                     className="code-editor"
@@ -256,16 +532,43 @@ export default function App() {
                 <h2>Standard Input</h2>
 
                 <p className="hint">
-                    Enter the values your program will read (Scanner / scanf / cin).
-                    Separate values with spaces or new lines.
+                    Enter values in the order your program reads them. For Java,
+                    nextLine() reads the rest of the current line, so put text
+                    and numeric inputs on separate lines when mixing Scanner methods.
                 </p>
 
                 <textarea
                     className="input-editor"
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder={"Example:\n25\nFarhana"}
+                    placeholder={"Example:\nFarhana Maisha\n25\n85.5"}
                 />
+=======
+                <div className="code-editor-wrapper">
+                    <div
+                        className="line-numbers"
+                        ref={lineNumbersRef}
+                        aria-hidden="true"
+                    >
+                        <pre>{lineNumbers}</pre>
+                    </div>
+                    <textarea
+                        className="code-editor"
+                        spellCheck="false"
+                        value={source}
+                        onChange={e => {
+                            updateActiveFile(e.target.value);
+                        }}
+                        onScroll={e => {
+                            if (lineNumbersRef.current) {
+                                lineNumbersRef.current.scrollTop =
+                                    e.currentTarget.scrollTop;
+                            }
+                        }}
+                        placeholder={`Write ${language} code here...`}
+                    />
+                </div>
+
             </section>
 
             {/* COMPILATION RESULTS */}
@@ -333,6 +636,9 @@ export default function App() {
                                 : "Not completed"
                         }
                     >
+                        <p className="hint">
+                            Source code → Tokens
+                        </p>
                         {result.tokens ? (
                             <div className="table-wrapper">
                                 <table>
@@ -373,6 +679,9 @@ export default function App() {
                                 : "Not completed"
                         }
                     >
+                        <p className="hint">
+                            Tokens → Abstract Syntax Tree (AST)
+                        </p>
                         {result.ast ? (
                             <pre>
                                 {typeof result.ast === "string"
@@ -391,7 +700,11 @@ export default function App() {
                         title="Semantic Analysis"
                         status={semanticStatus}
                     >
+                        <p className="hint">
+                            AST → Annotated AST + Symbol Table
+                        </p>
                         {result.symbols?.length > 0 ? (
+                            <>
                             <div className="table-wrapper">
                                 <table>
                                     <thead>
@@ -413,6 +726,15 @@ export default function App() {
                                     </tbody>
                                 </table>
                             </div>
+                            {result.annotatedAst && (
+                                <>
+                                    <p className="hint">
+                                        Annotated AST
+                                    </p>
+                                    <pre>{result.annotatedAst}</pre>
+                                </>
+                            )}
+                            </>
                         ) : (
                             <p>
                                 {semanticStatus === "Failed"
@@ -431,6 +753,9 @@ export default function App() {
                         title="Intermediate Code Generation"
                         status={intermediateStatus}
                     >
+                        <p className="hint">
+                            AST → Three-Address Code (TAC)
+                        </p>
                         {result.tac?.length > 0 ? (
                             <>
                                 <p className="hint">
@@ -453,6 +778,9 @@ export default function App() {
                         title="Code Optimization"
                         status={optimizationStatus}
                     >
+                        <p className="hint">
+                            Intermediate Code → Optimized Intermediate Code
+                        </p>
                         {optimizedTac.length > 0 ? (
                             <>
                                 <p className="hint">
@@ -489,10 +817,15 @@ export default function App() {
                         title={
                             language === "Java"
                                 ? "Target Code Generation (JVM Bytecode)"
-                                : "Code Generation"
+                                : language === "C"
+                                    ? "Target Code Generation (Assembly)"
+                                    : "Target Code Generation"
                         }
                         status={codeGenerationStatus}
                     >
+                        <p className="hint">
+                            Optimized Code → Assembly / Machine Code
+                        </p>
                         {result.codeGenerationCompleted === true ? (
                             <>
                                 <p className="hint">
@@ -542,29 +875,120 @@ export default function App() {
             )}
 
             {/* PROGRAM OUTPUT */}
+            {outputModalOpen && (
+                <div
+                    className="output-modal-backdrop"
+                    role="presentation"
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) {
+                            setOutputModalOpen(false);
+                        }
+                    }}
+                >
+                    <section
+                        className="output-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="output-modal-title"
+                    >
+                        <div className="output-modal-header">
+                            <div>
+                                <h2 id="output-modal-title">
+                                    Program Console
+                                </h2>
+                                <p className="hint">
+                                    {language} · Standard input and output
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                className="modal-close"
+                                onClick={() => setOutputModalOpen(false)}
+                                aria-label="Close program console"
+                            >
+                                ×
+                            </button>
+                        </div>
 
-            <section className="panel">
-                <h3>Program Output</h3>
+                        <div className={`console-grid${hasUserInput ? "" : " console-output-only"}`}>
+                            {hasUserInput && (
+                                <div className="console-pane">
+                                    <div className="console-heading">
+                                        <h3>Standard Input</h3>
+                                        <span>stdin</span>
+                                    </div>
+                                    <textarea
+                                        className="console-input"
+                                        value={input}
+                                        onChange={event => {
+                                            setInput(event.target.value);
+                                            setInputSubmitted(false);
+                                            setResult(null);
+                                        }}
+                                        placeholder={"Example:\n25"}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="rerun-button"
+                                        onClick={() => compileCode(true)}
+                                        disabled={
+                                            loading ||
+                                            !source.trim() ||
+                                            !input.trim()
+                                        }
+                                    >
+                                        {loading ? "Running..." : "Run with Input"}
+                                    </button>
+                                </div>
+                            )}
 
-                <pre className="output-placeholder">
-                    {!result
-                        ? `Compile your ${language} program to view its output here.`
-                        : compilationFailed
-                            ? "Program execution skipped because compilation failed."
-                            : hasRuntimeError
-                                ? "Program execution failed. See Runtime Diagnostics above."
-                                : programOutput.length > 0
-                                    ? programOutput.join("\n")
-                                    : completed
-                                        ? "Program executed successfully. No output."
-                                        : "Program output is unavailable because compilation failed."}
-                </pre>
-            </section>
+                            <div className="console-pane">
+                                <div className="console-heading">
+                                    <h3>Program Output</h3>
+                                    <span>stdout</span>
+                                </div>
+                                <pre className="console-output">
+                                    {loading
+                                        ? "Compiling and running..."
+                                        : hasUserInput && !inputSubmitted
+                                            ? "Enter the required input, then run the program."
+                                            : !result
+                                                ? "No program output yet."
+                                                : compilationFailed
+                                                    ? "Program execution skipped because compilation failed."
+                                                    : hasRuntimeError
+                                                        ? "Program execution failed."
+                                                        : programOutput.length > 0
+                                                            ? programOutput.join("\n")
+                                                            : completed
+                                                                ? "Program executed successfully. No output."
+                                                                : "Program output is unavailable."}
+                                </pre>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            )}
+
+                </div>
+            </div>
 
             {/* FOOTER */}
 
             <footer className="footer">
-                {language} Compiler · Compiler Construction
+                <div className="footer-brand">
+                    <span className="footer-status-dot" aria-hidden="true"></span>
+                    <strong>{language} Compiler</strong>
+                    <span>Compiler Construction Workspace</span>
+                </div>
+                <div className="footer-meta">
+                    <span>{activeFileId
+                        ? files.find(file => file.id === activeFileId)?.name
+                        : "No file selected"}</span>
+                    <span>UTF-8</span>
+                    <span>{lineCount} line{lineCount === 1 ? "" : "s"}</span>
+                    <span>Ready</span>
+                </div>
             </footer>
 
         </main>

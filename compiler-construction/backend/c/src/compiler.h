@@ -145,6 +145,8 @@ void free_symbols(void);
 void free_functions(void);
 
 void generate_tac(const AstNode *root);
+void generate_optimized_tac(const AstNode *root);
+void generate_target_assembly(const AstNode *root);
 void optimize_ast(AstNode *root);
 
 void add_diagnostic(DiagnosticArray *diagnostics, int line, int column,

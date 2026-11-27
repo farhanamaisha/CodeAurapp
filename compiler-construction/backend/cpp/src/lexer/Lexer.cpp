@@ -67,6 +67,13 @@ void Lexer::skipComment() {
     }
 }
 
+void Lexer::skipPreprocessorDirective() {
+    if (peek() != '#') return;
+    while (!isAtEnd() && peek() != '\n') {
+        advance();
+    }
+}
+
 Token Lexer::readIdentifierOrKeyword() {
     const int startLine = line_;
     const int startColumn = column_;
@@ -245,6 +252,11 @@ std::vector<Token> Lexer::tokenize() {
         if (peek() == '/' && index_ + 1 < source_.size() && (source_[index_ + 1] == '/' || source_[index_ + 1] == '*')) {
             skipComment();
             if (isAtEnd()) break;
+            continue;
+        }
+
+        if (peek() == '#') {
+            skipPreprocessorDirective();
             continue;
         }
 
