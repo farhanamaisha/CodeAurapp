@@ -27,6 +27,7 @@ private:
     void skipWhitespace();
     void skipComment();
     void skipIncludeDirective();
+    void skipPreprocessorDirective();
     Token readIdentifierOrKeyword();
     Token readNumber();
     Token readString();

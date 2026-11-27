@@ -50,14 +50,33 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
+        int port = 8080;
+        String portValue = System.getenv("PORT");
+        if (portValue != null && !portValue.isBlank()) {
+            port = Integer.parseInt(portValue);
+        }
+
         HttpServer server = HttpServer.create(
-            new InetSocketAddress("0.0.0.0", 8080), 0
+            new InetSocketAddress("0.0.0.0", port), 0
         );
 
+        server.createContext("/api/health", Main::handleHealth);
         server.createContext("/api/compile", Main::handleCompile);
         server.start();
 
-        System.out.println("Java Compiler API running on port 8080");
+        System.out.println("Java Compiler API running on port " + port);
+    }
+
+    private static void handleHealth(HttpExchange exchange)
+            throws IOException {
+        addCorsHeaders(exchange);
+        if (!exchange.getRequestMethod().equalsIgnoreCase("GET")) {
+            sendResponse(exchange, 405,
+                "{\"success\":false,\"errors\":[\"Method not allowed\"]}");
+            return;
+        }
+        sendResponse(exchange, 200,
+            "{\"success\":true,\"service\":\"compiler-api\"}");
     }
 
     private static void handleCompile(HttpExchange exchange)
@@ -102,7 +121,7 @@ public class Main {
 
             // Phase 1: Lexical Analysis
             List<TokenInfo> tokens = tokenize(source);
-          
+
 
             // Phase 2: Syntax Analysis
             JavaLexer lexer = new JavaLexer(new StringReader(source));
@@ -302,11 +321,19 @@ public class Main {
             stdout, "=== 2. SYNTAX ANALYSIS: AST ===",
             "\n=== 3.");
         String symbolSection = extractSection(
-            stdout, "=== 3. SEMANTIC ANALYSIS: SYMBOLS ===",
+            stdout, "=== SYMBOL TABLE ===",
+            "\nSemantic Checks:");
+        String annotatedAstSection = extractSection(
+            stdout, "=== 3.1 ANNOTATED AST ===",
             "\n=== 4.");
         String tacSection = extractSection(
-            stdout, "=== 5. INTERMEDIATE CODE GENERATION: TAC ===",
+            stdout, "=== 4. INTERMEDIATE CODE GENERATION: TAC ===",
+            "\n=== 5.");
+        String optimizedSection = extractSection(
+            stdout, "=== 5. CODE OPTIMIZATION: OPTIMIZED TAC ===",
             "\n=== 6.");
+        String assemblySection = extractSection(
+            stdout, "Assembly Code:", "\nExecution:");
         String diagnosticSection = extractSection(
             stdout, "=== DIAGNOSTICS ===", "\n=== 6.");
 
@@ -326,9 +353,13 @@ public class Main {
         output.append("\"ast\":").append(astSection.isEmpty()
             ? "null" : jsonString(astSection.trim())).append(",");
         output.append("\"symbols\":").append(parseCSymbols(symbolSection)).append(",");
+        output.append("\"annotatedAst\":").append(annotatedAstSection.isEmpty()
+            ? "null" : jsonString(annotatedAstSection.trim())).append(",");
         output.append("\"tac\":").append(parseCTac(tacSection)).append(",");
-        output.append("\"optimized_tac\":[],");
-        output.append("\"code\":[],");
+        output.append("\"optimized_tac\":").append(
+            parseCTac(optimizedSection)).append(",");
+        output.append("\"code\":").append(parseAssemblyCode(
+            assemblySection)).append(",");
         output.append("\"errors\":").append(stringListJson(errors)).append(",");
         output.append("\"programOutput\":").append(parseCProgramOutput(stdout)).append(",");
         output.append("\"runtimeErrors\":[]}");
@@ -396,7 +427,20 @@ public class Main {
         List<String> lines = new ArrayList<>();
         if (!section.isEmpty()) {
             for (String line : section.split("\\R")) {
-                if (!line.trim().isEmpty()) lines.add(line.trim());
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.contains("->")) {
+                    lines.add(trimmed);
+                }
+            }
+        }
+        return stringListJson(lines);
+    }
+
+    private static String parseAssemblyCode(String section) {
+        List<String> lines = new ArrayList<>();
+        if (!section.isEmpty()) {
+            for (String line : section.split("\\R")) {
+                lines.add(line);
             }
         }
         return stringListJson(lines);

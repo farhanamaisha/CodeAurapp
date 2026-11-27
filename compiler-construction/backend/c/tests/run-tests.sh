@@ -23,8 +23,10 @@ run_valid_test() {
     assert_contains "$output" "=== 1. LEXICAL ANALYSIS: TOKENS ==="
     assert_contains "$output" "=== 2. SYNTAX ANALYSIS: AST ==="
     assert_contains "$output" "=== 3. SEMANTIC ANALYSIS: SYMBOLS ==="
-    assert_contains "$output" "=== 4. CODE OPTIMIZATION: OPTIMIZED AST ==="
-    assert_contains "$output" "=== 5. INTERMEDIATE CODE GENERATION: TAC ==="
+    assert_contains "$output" "=== 4. INTERMEDIATE CODE GENERATION: TAC ==="
+    assert_contains "$output" "=== 5. CODE OPTIMIZATION: OPTIMIZED TAC ==="
+    assert_contains "$output" "=== 6. TARGET CODE GENERATION: ASSEMBLY CODE ==="
+    assert_contains "$output" "Assembly Code:"
     assert_contains "$output" "main:"
     assert_contains "$output" "scanf"
     assert_contains "$output" "sum"
@@ -84,7 +86,8 @@ run_execution_test() {
         printf 'Expected executed program output of 5\n' >&2
         exit 1
     fi
-    assert_contains "$output" "=== 6. CODE GENERATION AND EXECUTION ==="
+    assert_contains "$output" "=== 6. TARGET CODE GENERATION: ASSEMBLY CODE ==="
+    assert_contains "$output" "Assembly Code:"
     assert_contains "$output" "Status: compiled and executed successfully"
     pass_count=$((pass_count + 1))
 }
@@ -101,13 +104,33 @@ run_input_test() {
     pass_count=$((pass_count + 1))
 }
 
+run_even_odd_test() {
+    output="$tmp_dir/even_odd.out"
+    "$compiler" "$tests_dir/even_odd.c" >"$output" \
+        2>"$tmp_dir/even_odd.err"
+    assert_contains "$output" "num = 7"
+    assert_contains "$output" "t1 = num % 2"
+    assert_contains "$output" "if t1 == 0 goto L1"
+    assert_contains "$output" "MOV R1"
+    assert_contains "$output" "MOV R2"
+    assert_contains "$output" "MOD R3, R1, R2"
+    assert_contains "$output" "CMP R3, #0"
+    assert_contains "$output" "BEQ EVEN"
+    assert_contains "$output" "ODD:"
+    assert_contains "$output" "CALL printf"
+    pass_count=$((pass_count + 1))
+}
+
 run_optimization_test() {
     output="$tmp_dir/optimization.out"
     "$compiler" "$tests_dir/optimization.c" >"$output" \
         2>"$tmp_dir/optimization.err"
     assert_contains "$output" "value = 5"
     assert_contains "$output" "copy = value"
-    if grep -Fq "copy = copy" "$output"; then
+    optimized_output="$tmp_dir/optimization.phase5"
+    sed -n '/=== 5\. CODE OPTIMIZATION/,/=== 6\./p' "$output" \
+        >"$optimized_output"
+    if grep -Fq "copy = copy" "$optimized_output"; then
         printf 'Copy-propagated redundant assignment remains\n' >&2
         exit 1
     fi
@@ -134,6 +157,7 @@ run_arrays_pointers_test
 run_preprocessor_test
 run_execution_test
 run_input_test
+run_even_odd_test
 run_optimization_test
 run_invalid_test invalid_semantic "cannot initialize int variable with bool value"
 run_invalid_test invalid_lexical "unexpected character '@'"
