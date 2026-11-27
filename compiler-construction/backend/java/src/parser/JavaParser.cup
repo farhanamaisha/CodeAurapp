@@ -53,10 +53,10 @@ terminal INT, FLOAT, DOUBLE, BOOLEAN, STRING;
 
 /* Scanner keywords */
 terminal SCANNER, NEW, IN;
-terminal NEXT_INT, NEXT_FLOAT, NEXT_LINE;
+terminal NEXT_INT, NEXT_FLOAT, NEXT_DOUBLE, NEXT_LINE;
 
 /* Control flow */
-terminal IF, ELSE, WHILE, FOR;
+terminal IF, ELSE, WHILE, FOR, SWITCH, CASE, DEFAULT, BREAK;
 
 /* Output */
 terminal SYSTEM, OUT, PRINTLN, PRINT;
@@ -69,7 +69,7 @@ terminal ASSIGN, LESS, GREATER, NOT;
 
 /* Symbols */
 terminal LBRACE, RBRACE, LPAREN, RPAREN;
-terminal LBRACKET, RBRACKET, SEMICOLON, COMMA, DOT;
+terminal LBRACKET, RBRACKET, SEMICOLON, COMMA, DOT, COLON;
 
 /* Values */
 terminal String IDENTIFIER;
@@ -81,8 +81,12 @@ non terminal ASTNode program, class_decl, main_method;
 non terminal ASTNode import_declaration;
 non terminal ASTNode block, statement_list, statement;
 non terminal ASTNode declaration, declaration_no_semi;
+non terminal ASTNode array_declaration;
 non terminal ASTNode assignment, assignment_no_semi;
+non terminal ASTNode array_assignment;
 non terminal ASTNode scanner_declaration;
+non terminal ASTNode method_call;
+non terminal ASTNode switch_statement, switch_cases, switch_case, switch_default;
 non terminal ASTNode print_statement;
 non terminal ASTNode if_statement, while_statement, for_statement;
 non terminal ASTNode for_init, for_update;
@@ -92,6 +96,7 @@ non terminal ASTNode increment_statement;
 
 non terminal String type_name;
 non terminal String qualified_name;
+non terminal String cast_type;
 
 /* Operator precedence */
 precedence nonassoc IFX;
@@ -190,11 +195,23 @@ statement ::=
     declaration:d
     {: RESULT = d; :}
     |
+    array_declaration:d
+    {: RESULT = d; :}
+    |
     assignment:a
     {: RESULT = a; :}
     |
+    array_assignment:a
+    {: RESULT = a; :}
+    |
+    increment_statement:i SEMICOLON
+    {: RESULT = i; :}
+    |
     scanner_declaration:s
     {: RESULT = s; :}
+    |
+    method_call:m
+    {: RESULT = m; :}
     |
     print_statement:p
     {: RESULT = p; :}
@@ -207,6 +224,12 @@ statement ::=
     |
     for_statement:f
     {: RESULT = f; :}
+    |
+    switch_statement:s
+    {: RESULT = s; :}
+    |
+    BREAK:breakToken SEMICOLON
+    {: RESULT = new ASTNode("BREAK", null, lineOf(breakTokenleft)); :}
     |
     block:b
     {: RESULT = b; :}
@@ -267,6 +290,16 @@ declaration_no_semi ::=
     :}
     ;
 
+array_declaration ::=
+    INT LBRACKET RBRACKET IDENTIFIER:name ASSIGN NEW INT
+    LBRACKET expression:size RBRACKET SEMICOLON
+    {:
+        RESULT = new ASTNode("ARRAY_DECL", "int", lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
+        RESULT.addChild(size);
+    :}
+    ;
+
 /* =========================================================
    SCANNER INPUT
    Scanner sc = new Scanner(System.in);
@@ -277,6 +310,71 @@ scanner_declaration ::=
     LPAREN SYSTEM DOT IN RPAREN SEMICOLON
     {:
         RESULT = new ASTNode("SCANNER_DECL", name, lineOf(nameleft));
+    :}
+    ;
+
+method_call ::=
+    IDENTIFIER:name DOT IDENTIFIER:method LPAREN RPAREN SEMICOLON
+    {:
+        RESULT = new ASTNode("METHOD_CALL", method, lineOf(nameleft));
+        RESULT.addChild(node("IDENTIFIER", name, lineOf(nameleft)));
+    :}
+    ;
+
+array_assignment ::=
+    IDENTIFIER:name LBRACKET expression:index RBRACKET
+    ASSIGN expression:value SEMICOLON
+    {:
+        RESULT = new ASTNode("ARRAY_ASSIGN", name, lineOf(nameleft));
+        RESULT.addChild(index);
+        RESULT.addChild(value);
+    :}
+    ;
+
+switch_statement ::=
+    SWITCH:token LPAREN expression:value RPAREN
+    LBRACE switch_cases:cases RBRACE
+    {:
+        RESULT = new ASTNode("SWITCH", null, lineOf(tokenleft));
+        RESULT.addChild(value);
+        for (ASTNode switchCase : cases.getChildren()) {
+            RESULT.addChild(switchCase);
+        }
+    :}
+    ;
+
+switch_cases ::=
+    switch_cases:cases switch_case:one
+    {:
+        cases.addChild(one);
+        RESULT = cases;
+    :}
+    |
+    switch_cases:cases switch_default:other
+    {:
+        cases.addChild(other);
+        RESULT = cases;
+    :}
+    |
+    {:
+        RESULT = new ASTNode("SWITCH_CASES", null, 1);
+    :}
+    ;
+
+switch_case ::=
+    CASE expression:value COLON statement_list:body
+    {:
+        RESULT = new ASTNode("CASE", null, lineOf(valueleft));
+        RESULT.addChild(value);
+        RESULT.addChild(body);
+    :}
+    ;
+
+switch_default ::=
+    DEFAULT COLON statement_list:body
+    {:
+        RESULT = new ASTNode("DEFAULT", null, lineOf(bodyleft));
+        RESULT.addChild(body);
     :}
     ;
 
@@ -601,6 +699,18 @@ unary ::=
    ========================================================= */
 
 primary ::=
+    LPAREN cast_type:type RPAREN unary:value
+    {:
+        RESULT = new ASTNode("CAST", type, lineOf(typeleft));
+        RESULT.addChild(value);
+    :}
+    |
+    IDENTIFIER:name LBRACKET expression:index RBRACKET
+    {:
+        RESULT = new ASTNode("ARRAY_ACCESS", name, lineOf(nameleft));
+        RESULT.addChild(index);
+    :}
+    |
     IDENTIFIER:name
     {:
         RESULT = node("IDENTIFIER", name, lineOf(nameleft));
@@ -636,6 +746,11 @@ primary ::=
         RESULT = new ASTNode("INPUT", "float", lineOf(nameleft));
     :}
     |
+    IDENTIFIER:name DOT NEXT_DOUBLE:method LPAREN RPAREN
+    {:
+        RESULT = new ASTNode("INPUT", "double", lineOf(nameleft));
+    :}
+    |
     IDENTIFIER:name DOT NEXT_LINE:method LPAREN RPAREN
     {:
         RESULT = new ASTNode("INPUT", "String", lineOf(nameleft));
@@ -643,4 +758,12 @@ primary ::=
     |
     LPAREN expression:e RPAREN
     {: RESULT = e; :}
+    ;
+
+cast_type ::=
+    INT {: RESULT = "int"; :}
+    |
+    FLOAT {: RESULT = "float"; :}
+    |
+    DOUBLE {: RESULT = "float"; :}
     ;

@@ -74,6 +74,10 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "else"             { return keyword(sym.ELSE); }
 <YYINITIAL> "while"            { return keyword(sym.WHILE); }
 <YYINITIAL> "for"              { return keyword(sym.FOR); }
+<YYINITIAL> "switch"           { return keyword(sym.SWITCH); }
+<YYINITIAL> "case"              { return keyword(sym.CASE); }
+<YYINITIAL> "default"           { return keyword(sym.DEFAULT); }
+<YYINITIAL> "break"             { return keyword(sym.BREAK); }
 
 /* Scanner input keywords */
 
@@ -82,6 +86,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "in"               { return keyword(sym.IN); }
 <YYINITIAL> "nextInt"          { return keyword(sym.NEXT_INT); }
 <YYINITIAL> "nextFloat"        { return keyword(sym.NEXT_FLOAT); }
+<YYINITIAL> "nextDouble"       { return keyword(sym.NEXT_DOUBLE); }
 <YYINITIAL> "nextLine"         { return keyword(sym.NEXT_LINE); }
 
 /* Output keywords */
@@ -127,6 +132,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> ";"                { return keyword(sym.SEMICOLON); }
 <YYINITIAL> ","                { return keyword(sym.COMMA); }
 <YYINITIAL> "."                { return keyword(sym.DOT); }
+<YYINITIAL> ":"                { return keyword(sym.COLON); }
 
 /* Literals and identifiers */
 

@@ -256,15 +256,16 @@ export default function App() {
                 <h2>Standard Input</h2>
 
                 <p className="hint">
-                    Enter the values your program will read (Scanner / scanf / cin).
-                    Separate values with spaces or new lines.
+                    Enter values in the order your program reads them. For Java,
+                    nextLine() reads the rest of the current line, so put text
+                    and numeric inputs on separate lines when mixing Scanner methods.
                 </p>
 
                 <textarea
                     className="input-editor"
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder={"Example:\n25\nFarhana"}
+                    placeholder={"Example:\nFarhana Maisha\n25\n85.5"}
                 />
             </section>
 
