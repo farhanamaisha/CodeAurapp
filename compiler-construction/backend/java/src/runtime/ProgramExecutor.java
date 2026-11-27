@@ -5,6 +5,10 @@ import ast.ASTNode;
 import java.util.*;
 
 public class ProgramExecutor {
+    private static final class BreakSignal extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+    }
+
     private final Map<String, Object> variables = new LinkedHashMap<>();
     private final List<String> output = new ArrayList<>();
 
@@ -51,11 +55,31 @@ public class ProgramExecutor {
                 // Scanner object is provided by the runtime.
                 break;
 
+            case "METHOD_CALL":
+                // The runtime owns the input scanner and closes it after execution.
+                break;
+
+            case "BREAK":
+                throw new BreakSignal();
+
             case "DECLARATION": {
                 String name = node.getChildren().get(0).getValue();
                 Object value = node.getChildren().size() > 1
                     ? evaluate(node.getChildren().get(1)) : 0.0;
                 variables.put(name, value);
+                break;
+            }
+
+            case "ARRAY_DECL": {
+                String name = node.getChildren().get(0).getValue();
+                int size = (int) number(evaluate(node.getChildren().get(1)));
+                if (size < 0 || size > MAX_STEPS) {
+                    throw new RuntimeException(
+                        "Runtime Error: Array size must be between 0 and "
+                        + MAX_STEPS + "."
+                    );
+                }
+                variables.put(name, new int[size]);
                 break;
             }
 
@@ -65,6 +89,19 @@ public class ProgramExecutor {
                     evaluate(node.getChildren().get(0))
                 );
                 break;
+
+            case "ARRAY_ASSIGN": {
+                Object value = variables.get(node.getValue());
+                if (!(value instanceof int[] array)) {
+                    throw new RuntimeException(
+                        "Runtime Error: Array '" + node.getValue()
+                        + "' has no value."
+                    );
+                }
+                int index = (int) number(evaluate(node.getChildren().get(0)));
+                array[index] = (int) number(evaluate(node.getChildren().get(1)));
+                break;
+            }
 
             case "PRINT":
                 output.add(formatOutput(
@@ -89,6 +126,10 @@ public class ProgramExecutor {
 
             case "FOR":
                 executeFor(node);
+                break;
+
+            case "SWITCH":
+                executeSwitch(node);
                 break;
 
             case "EMPTY":
@@ -118,6 +159,35 @@ public class ProgramExecutor {
         }
     }
 
+    private void executeSwitch(ASTNode node) {
+        Object selector = evaluate(node.getChildren().get(0));
+        int selected = -1;
+        int defaultIndex = -1;
+
+        for (int i = 1; i < node.getChildren().size(); i++) {
+            ASTNode branch = node.getChildren().get(i);
+            if (branch.getType().equals("DEFAULT")) {
+                defaultIndex = i;
+            } else if (selected < 0
+                    && Objects.equals(selector, evaluate(branch.getChildren().get(0)))) {
+                selected = i;
+            }
+        }
+
+        if (selected < 0) selected = defaultIndex;
+        if (selected < 0) return;
+
+        try {
+            for (int i = selected; i < node.getChildren().size(); i++) {
+                ASTNode branch = node.getChildren().get(i);
+                ASTNode body = branch.getChildren().get(branch.getChildren().size() - 1);
+                executeNode(body);
+            }
+        } catch (BreakSignal ignored) {
+            // A break exits the nearest switch statement.
+        }
+    }
+
     private Object evaluate(ASTNode node) {
         switch (node.getType()) {
             case "LITERAL":
@@ -134,6 +204,23 @@ public class ProgramExecutor {
 
             case "INPUT":
                 return readInput(node.getValue());
+
+            case "CAST": {
+                double value = number(evaluate(node.getChildren().get(0)));
+                return node.getValue().equals("int") ? (double) ((int) value) : value;
+            }
+
+            case "ARRAY_ACCESS": {
+                Object value = variables.get(node.getValue());
+                if (!(value instanceof int[] array)) {
+                    throw new RuntimeException(
+                        "Runtime Error: Array '" + node.getValue()
+                        + "' has no value."
+                    );
+                }
+                int index = (int) number(evaluate(node.getChildren().get(0)));
+                return (double) array[index];
+            }
 
             case "UNARY": {
                 Object operand = evaluate(node.getChildren().get(0));
@@ -215,6 +302,9 @@ public class ProgramExecutor {
 
                 case "float":
                     return (double) inputScanner.nextFloat();
+
+                case "double":
+                    return inputScanner.nextDouble();
 
                 case "String":
                     return inputScanner.nextLine();

@@ -51,6 +51,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 /* Java class and main keywords */
 
 <YYINITIAL> "class"            { return keyword(sym.CLASS); }
+<YYINITIAL> "import"            { return keyword(sym.IMPORT); }
 <YYINITIAL> "public"           { return keyword(sym.PUBLIC); }
 <YYINITIAL> "private"          { return keyword(sym.PRIVATE); }
 <YYINITIAL> "protected"        { return keyword(sym.PROTECTED); }
@@ -64,6 +65,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "float"            { return keyword(sym.FLOAT); }
 <YYINITIAL> "double"           { return keyword(sym.DOUBLE); }
 <YYINITIAL> "boolean"          { return keyword(sym.BOOLEAN); }
+<YYINITIAL> "bool"              { return keyword(sym.BOOLEAN); }
 <YYINITIAL> "String"           { return keyword(sym.STRING); }
 
 /* Control flow */
@@ -72,6 +74,10 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "else"             { return keyword(sym.ELSE); }
 <YYINITIAL> "while"            { return keyword(sym.WHILE); }
 <YYINITIAL> "for"              { return keyword(sym.FOR); }
+<YYINITIAL> "switch"           { return keyword(sym.SWITCH); }
+<YYINITIAL> "case"              { return keyword(sym.CASE); }
+<YYINITIAL> "default"           { return keyword(sym.DEFAULT); }
+<YYINITIAL> "break"             { return keyword(sym.BREAK); }
 
 /* Scanner input keywords */
 
@@ -80,6 +86,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> "in"               { return keyword(sym.IN); }
 <YYINITIAL> "nextInt"          { return keyword(sym.NEXT_INT); }
 <YYINITIAL> "nextFloat"        { return keyword(sym.NEXT_FLOAT); }
+<YYINITIAL> "nextDouble"       { return keyword(sym.NEXT_DOUBLE); }
 <YYINITIAL> "nextLine"         { return keyword(sym.NEXT_LINE); }
 
 /* Output keywords */
@@ -125,6 +132,7 @@ StringLiteral = \"([^\"\\]|\\.)*\"
 <YYINITIAL> ";"                { return keyword(sym.SEMICOLON); }
 <YYINITIAL> ","                { return keyword(sym.COMMA); }
 <YYINITIAL> "."                { return keyword(sym.DOT); }
+<YYINITIAL> ":"                { return keyword(sym.COLON); }
 
 /* Literals and identifiers */
 

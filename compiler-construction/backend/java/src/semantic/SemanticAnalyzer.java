@@ -47,15 +47,27 @@ public class SemanticAnalyzer {
                 break;
 
             case "SCANNER_DECL":
-                // Scanner initialization is handled by ProgramExecutor.
+                declareScanner(node);
+                break;
+
+            case "METHOD_CALL":
+                checkMethodCall(node);
                 break;
 
             case "DECLARATION":
                 declareVariable(node);
                 break;
 
+            case "ARRAY_DECL":
+                declareArray(node);
+                break;
+
             case "ASSIGNMENT":
                 checkAssignment(node);
+                break;
+
+            case "ARRAY_ASSIGN":
+                checkArrayAssignment(node);
                 break;
 
             case "PRINT":
@@ -72,6 +84,10 @@ public class SemanticAnalyzer {
 
             case "FOR":
                 analyzeFor(node);
+                break;
+
+            case "SWITCH":
+                analyzeSwitch(node);
                 break;
 
             case "EMPTY":
@@ -97,6 +113,30 @@ public class SemanticAnalyzer {
             || type.equals("BINARY")
             || type.equals("UNARY")
             || type.equals("INPUT");
+    }
+
+    private void declareScanner(ASTNode node) {
+        Symbol scanner = new Symbol(node.getValue(), "Scanner", node.getLine());
+
+        if (!symbolTable.declare(scanner)) {
+            error(node, "Variable already declared: " + node.getValue());
+        }
+    }
+
+    private void checkMethodCall(ASTNode node) {
+        String method = node.getValue();
+        String receiverName = node.getChildren().get(0).getValue();
+        Symbol receiver = symbolTable.lookup(receiverName);
+
+        if (receiver == null) {
+            error(node, "Semantic Error: Undeclared variable: " + receiverName);
+        } else if (!receiver.getType().equals("Scanner")) {
+            error(node, "Semantic Error: Method '" + method
+                + "' requires a Scanner variable.");
+        } else if (!method.equals("close")) {
+            error(node, "Semantic Error: Unsupported Scanner method: "
+                + method + "().");
+        }
     }
 
     private void declareVariable(ASTNode node) {
@@ -132,6 +172,49 @@ public class SemanticAnalyzer {
                     + " variable '" + variableName
                     + "' with " + expressionType + " value.");
             }
+        }
+    }
+
+    private void declareArray(ASTNode node) {
+        String name = node.getChildren().get(0).getValue();
+        Symbol array = new Symbol(name, node.getValue() + "[]", node.getLine());
+
+        if (!symbolTable.declare(array)) {
+            error(node, "Variable already declared: " + name);
+            return;
+        }
+
+        String sizeType = checkExpression(node.getChildren().get(1));
+        if (sizeType != null && !sizeType.equals("int")) {
+            error(node, "Array size must be an int.");
+        }
+    }
+
+    private void checkArrayAssignment(ASTNode node) {
+        Symbol array = symbolTable.lookup(node.getValue());
+        if (array == null) {
+            error(node, "Undeclared array: " + node.getValue());
+            checkExpression(node.getChildren().get(0));
+            checkExpression(node.getChildren().get(1));
+            return;
+        }
+        if (!array.getType().endsWith("[]")) {
+            error(node, "Variable '" + node.getValue() + "' is not an array.");
+            return;
+        }
+
+        String indexType = checkExpression(node.getChildren().get(0));
+        if (indexType != null && !indexType.equals("int")) {
+            error(node, "Array index must be an int.");
+        }
+
+        String valueType = checkExpression(node.getChildren().get(1));
+        String elementType = array.getType().substring(
+            0, array.getType().length() - 2
+        );
+        if (valueType != null && !isCompatible(elementType, valueType)) {
+            error(node, "Cannot assign " + valueType + " value to "
+                + elementType + " array '" + node.getValue() + "'.");
         }
     }
 
@@ -218,6 +301,29 @@ public class SemanticAnalyzer {
         symbolTable.exitScope();
     }
 
+    private void analyzeSwitch(ASTNode node) {
+        if (node.getChildren().isEmpty()) return;
+
+        String selectorType = checkExpression(node.getChildren().get(0));
+        for (int i = 1; i < node.getChildren().size(); i++) {
+            ASTNode branch = node.getChildren().get(i);
+            ASTNode label = branch.getType().equals("CASE")
+                ? branch.getChildren().get(0) : null;
+
+            if (label != null) {
+                String labelType = checkExpression(label);
+                if (selectorType != null && labelType != null
+                        && !isCompatible(selectorType, labelType)
+                        && !isCompatible(labelType, selectorType)) {
+                    error(branch, "Switch case type must match selector type.");
+                }
+            }
+
+            ASTNode body = branch.getChildren().get(branch.getChildren().size() - 1);
+            analyzeNode(body);
+        }
+    }
+
     private String checkExpression(ASTNode node) {
 
         if (node == null) return null;
@@ -242,8 +348,36 @@ public class SemanticAnalyzer {
                 return symbol.getType();
 
             case "INPUT":
-                // Scanner: nextInt(), nextFloat(), nextLine()
-                return node.getValue();
+                // double is represented as float by this compiler's type system.
+                return node.getValue().equals("double")
+                    ? "float" : node.getValue();
+
+            case "CAST":
+                String castType = node.getValue();
+                String operandType = checkExpression(node.getChildren().get(0));
+                if (!isNumeric(operandType)) {
+                    error(node, "Numeric cast requires a numeric value.");
+                    return null;
+                }
+                return castType;
+
+            case "ARRAY_ACCESS":
+                Symbol array = symbolTable.lookup(node.getValue());
+                if (array == null) {
+                    error(node, "Undeclared array: " + node.getValue());
+                    checkExpression(node.getChildren().get(0));
+                    return null;
+                }
+                if (!array.getType().endsWith("[]")) {
+                    error(node, "Variable '" + node.getValue()
+                        + "' is not an array.");
+                    return null;
+                }
+                String indexType = checkExpression(node.getChildren().get(0));
+                if (indexType != null && !indexType.equals("int")) {
+                    error(node, "Array index must be an int.");
+                }
+                return array.getType().substring(0, array.getType().length() - 2);
 
             case "UNARY":
                 return checkUnaryExpression(node);

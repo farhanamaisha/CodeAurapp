@@ -2,6 +2,7 @@
 package codegen;
 
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.util.TraceClassVisitor;
@@ -20,6 +21,10 @@ import static org.objectweb.asm.Opcodes.*;
 
 public class BytecodeGenerator {
 
+    private enum ValueType {
+        INT, DOUBLE, BOOLEAN, STRING, INT_ARRAY
+    }
+
     public static class Result {
         public final String bytecode;
         public final String filePath;
@@ -31,13 +36,17 @@ public class BytecodeGenerator {
     }
 
     private final Map<String, Integer> variables = new HashMap<>();
-    private int nextSlot = 1;
+    private final Map<String, ValueType> variableTypes = new HashMap<>();
+    private final Map<String, Label> labels = new HashMap<>();
+    private int nextSlot = 2;
     private MethodVisitor method;
 
     public Result generate(List<String> instructions) throws Exception {
 
         variables.clear();
-        nextSlot = 1;
+        variableTypes.clear();
+        labels.clear();
+        nextSlot = 2;
 
         ClassWriter writer = new ClassWriter(
             ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS
@@ -78,11 +87,35 @@ public class BytecodeGenerator {
         );
 
         method.visitCode();
+        method.visitTypeInsn(NEW, "java/util/Scanner");
+        method.visitInsn(DUP);
+        method.visitFieldInsn(
+            GETSTATIC, "java/lang/System", "in", "Ljava/io/InputStream;"
+        );
+        method.visitMethodInsn(
+            INVOKESPECIAL, "java/util/Scanner", "<init>",
+            "(Ljava/io/InputStream;)V", false
+        );
+        method.visitVarInsn(ASTORE, 1);
+
+        for (String instruction : instructions) {
+            String line = instruction.trim();
+            if (line.endsWith(":")) {
+                labels.put(
+                    line.substring(0, line.length() - 1),
+                    new Label()
+                );
+            }
+        }
 
         for (String instruction : instructions) {
             compileInstruction(instruction.trim());
         }
 
+        method.visitVarInsn(ALOAD, 1);
+        method.visitMethodInsn(
+            INVOKEVIRTUAL, "java/util/Scanner", "close", "()V", false
+        );
         method.visitInsn(RETURN);
         method.visitMaxs(0, 0);
         method.visitEnd();
@@ -146,6 +179,41 @@ public class BytecodeGenerator {
 
         if (line.isEmpty()) return;
 
+        if (line.endsWith(":")) {
+            method.visitLabel(labels.get(
+                line.substring(0, line.length() - 1)
+            ));
+            return;
+        }
+
+        Matcher conditional = Pattern.compile(
+            "^ifFalse\\s+(.+)\\s+goto\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)$"
+        ).matcher(line);
+
+        if (conditional.matches()) {
+            ValueType conditionType = emitExpression(
+                conditional.group(1).trim()
+            );
+            if (conditionType == ValueType.DOUBLE) {
+                method.visitInsn(DCONST_0);
+                method.visitInsn(DCMPL);
+            }
+            method.visitJumpInsn(
+                IFEQ,
+                labels.get(conditional.group(2))
+            );
+            return;
+        }
+
+        Matcher jump = Pattern.compile(
+            "^goto\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)$"
+        ).matcher(line);
+
+        if (jump.matches()) {
+            method.visitJumpInsn(GOTO, labels.get(jump.group(1)));
+            return;
+        }
+
         if (line.startsWith("print ")) {
             String expression = line.substring(6).trim();
 
@@ -156,21 +224,59 @@ public class BytecodeGenerator {
                 "Ljava/io/PrintStream;"
             );
 
-            boolean integer = emitValue(expression);
+            ValueType valueType = emitExpression(expression);
+            String descriptor;
+            switch (valueType) {
+                case INT:
+                    descriptor = "(I)V";
+                    break;
+                case DOUBLE:
+                    descriptor = "(D)V";
+                    break;
+                case BOOLEAN:
+                    descriptor = "(Z)V";
+                    break;
+                case STRING:
+                    descriptor = "(Ljava/lang/String;)V";
+                    break;
+                default:
+                    throw new IllegalStateException("Unsupported print type.");
+            }
 
             method.visitMethodInsn(
                 INVOKEVIRTUAL,
                 "java/io/PrintStream",
                 "println",
-                integer ? "(I)V" : "(Ljava/lang/String;)V",
+                descriptor,
                 false
             );
 
             return;
         }
 
+        Matcher arrayAssignment = Pattern.compile(
+            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\[(.*)]\\s*=\\s*(.*)$"
+        ).matcher(line);
+
+        if (arrayAssignment.matches()) {
+            String name = arrayAssignment.group(1);
+            Integer slot = variables.get(name);
+            if (slot == null || variableTypes.get(name) != ValueType.INT_ARRAY) {
+                throw new IllegalArgumentException(
+                    "Unknown int array in TAC assignment: " + name
+                );
+            }
+            method.visitVarInsn(ALOAD, slot);
+            ValueType indexType = emitExpression(arrayAssignment.group(2));
+            convert(indexType, ValueType.INT);
+            ValueType valueType = emitExpression(arrayAssignment.group(3));
+            convert(valueType, ValueType.INT);
+            method.visitInsn(IASTORE);
+            return;
+        }
+
         Matcher assignment = Pattern.compile(
-            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(.+)$"
+            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(.*)$"
         ).matcher(line);
 
         if (!assignment.matches()) {
@@ -181,99 +287,366 @@ public class BytecodeGenerator {
 
         String name = assignment.group(1);
         String expression = assignment.group(2).trim();
-
-        Matcher arithmetic = Pattern.compile(
-            "^(.+?)\\s*([+\\-*/])\\s*(.+)$"
-        ).matcher(expression);
-
-        if (arithmetic.matches()) {
-
-            boolean leftInteger = emitValue(
-                arithmetic.group(1).trim()
-            );
-
-            boolean rightInteger = emitValue(
-                arithmetic.group(3).trim()
-            );
-
-            if (!leftInteger || !rightInteger) {
-                throw new IllegalArgumentException(
-                    "Only integer arithmetic is currently supported."
-                );
-            }
-
-            switch (arithmetic.group(2)) {
-                case "+":
-                    method.visitInsn(IADD);
-                    break;
-                case "-":
-                    method.visitInsn(ISUB);
-                    break;
-                case "*":
-                    method.visitInsn(IMUL);
-                    break;
-                case "/":
-                    method.visitInsn(IDIV);
-                    break;
-            }
-
+        ValueType valueType = emitExpression(expression);
+        ValueType declaredType = variableTypes.get(name);
+        if (declaredType == null) {
+            declaredType = valueType;
+            variableTypes.put(name, declaredType);
+            variables.put(name, nextSlot);
+            nextSlot += declaredType == ValueType.DOUBLE ? 2 : 1;
         } else {
-            emitValue(expression);
+            convert(valueType, declaredType);
         }
-
-        int slot = variables.computeIfAbsent(
-            name,
-            key -> nextSlot++
-        );
-
-        method.visitVarInsn(ISTORE, slot);
+        method.visitVarInsn(storeOpcode(declaredType), variables.get(name));
     }
 
-    private boolean emitValue(String expression) {
+    private ValueType emitExpression(String expression) {
+        expression = expression.trim();
+        ValueType type = inferType(expression);
 
+        Matcher cast = Pattern.compile("^(int|float|double)\\((.*)\\)$")
+            .matcher(expression);
+        if (cast.matches()) {
+            ValueType sourceType = emitExpression(cast.group(2));
+            ValueType targetType = cast.group(1).equals("int")
+                ? ValueType.INT : ValueType.DOUBLE;
+            convert(sourceType, targetType);
+            return targetType;
+        }
+
+        Matcher arrayAllocation = Pattern.compile("^newarray\\s+int\\s+(.+)$")
+            .matcher(expression);
+        if (arrayAllocation.matches()) {
+            ValueType sizeType = emitExpression(arrayAllocation.group(1));
+            convert(sizeType, ValueType.INT);
+            method.visitIntInsn(NEWARRAY, T_INT);
+            return ValueType.INT_ARRAY;
+        }
+
+        Matcher arrayAccess = Pattern.compile(
+            "^([a-zA-Z_$][a-zA-Z0-9_$]*)\\[(.*)]$"
+        ).matcher(expression);
+        if (arrayAccess.matches()) {
+            Integer slot = variables.get(arrayAccess.group(1));
+            if (slot == null
+                    || variableTypes.get(arrayAccess.group(1)) != ValueType.INT_ARRAY) {
+                throw new IllegalArgumentException(
+                    "Unknown int array in TAC expression: " + arrayAccess.group(1)
+                );
+            }
+            method.visitVarInsn(ALOAD, slot);
+            ValueType indexType = emitExpression(arrayAccess.group(2));
+            convert(indexType, ValueType.INT);
+            method.visitInsn(IALOAD);
+            return ValueType.INT;
+        }
+
+        if (expression.matches("-?\\d+(\\.\\d+)?")
+                || expression.equals("true")
+                || expression.equals("false")
+                || expression.startsWith("\"")
+                || expression.matches("read(Int|Float|Double|Line)")
+                || expression.matches("[a-zA-Z_$][a-zA-Z0-9_$]*")) {
+            return emitValue(expression);
+        }
+
+        Matcher comparison = Pattern.compile(
+            "^(.+?)\\s*(==|!=|<=|>=|<|>)\\s*(.+)$"
+        ).matcher(expression);
+        if (comparison.matches()) {
+            emitComparison(
+                comparison.group(1).trim(),
+                comparison.group(2),
+                comparison.group(3).trim()
+            );
+            return ValueType.BOOLEAN;
+        }
+
+        Matcher logical = Pattern.compile("^(.+?)\\s*(&&|\\|\\|)\\s*(.+)$")
+            .matcher(expression);
+        if (logical.matches()) {
+            emitExpression(logical.group(1));
+            emitExpression(logical.group(3));
+            method.visitInsn(logical.group(2).equals("&&") ? IAND : IOR);
+            return ValueType.BOOLEAN;
+        }
+
+        Matcher arithmetic = Pattern.compile(
+            "^(.+?)\\s*([+\\-*/%])\\s*(.+)$"
+        ).matcher(expression);
+        if (arithmetic.matches()) {
+            String left = arithmetic.group(1).trim();
+            String operator = arithmetic.group(2);
+            String right = arithmetic.group(3).trim();
+            ValueType resultType = inferType(expression);
+            ValueType leftType = emitExpression(left);
+            convert(leftType, resultType);
+            ValueType rightType = emitExpression(right);
+            convert(rightType, resultType);
+
+            if (resultType == ValueType.DOUBLE) {
+                method.visitInsn(doubleArithmeticOpcode(operator));
+            } else {
+                method.visitInsn(intArithmeticOpcode(operator));
+            }
+            return resultType;
+        }
+
+        Matcher unary = Pattern.compile("^([!+\\-])\\s*(.+)$")
+            .matcher(expression);
+        if (unary.matches()) {
+            String operator = unary.group(1);
+            ValueType operandType = emitExpression(unary.group(2));
+            if (operator.equals("!")) {
+                method.visitInsn(ICONST_1);
+                method.visitInsn(IXOR);
+                return ValueType.BOOLEAN;
+            }
+            if (operator.equals("-")) {
+                method.visitInsn(operandType == ValueType.DOUBLE ? DNEG : INEG);
+            }
+            return operandType;
+        }
+
+        return emitValue(expression);
+    }
+
+    private ValueType inferType(String expression) {
+        expression = expression.trim();
+        if (expression.matches("^(int|float|double)\\(.*\\)$")) {
+            return expression.startsWith("int(")
+                ? ValueType.INT : ValueType.DOUBLE;
+        }
+        if (expression.matches("^newarray\\s+int\\s+.+$")) {
+            return ValueType.INT_ARRAY;
+        }
+        if (expression.matches("^[a-zA-Z_$][a-zA-Z0-9_$]*\\[.*]$")) {
+            return ValueType.INT;
+        }
+        if (expression.equals("true") || expression.equals("false")) {
+            return ValueType.BOOLEAN;
+        }
+        if (expression.startsWith("\"") && expression.endsWith("\"")) {
+            return ValueType.STRING;
+        }
+        if (expression.matches("-?\\d+\\.\\d+")) return ValueType.DOUBLE;
+        if (expression.matches("-?\\d+")) return ValueType.INT;
+        if (expression.equals("readInt")) return ValueType.INT;
+        if (expression.equals("readFloat")
+                || expression.equals("readDouble")) return ValueType.DOUBLE;
+        if (expression.equals("readLine")) return ValueType.STRING;
+
+        Matcher comparison = Pattern.compile(
+            "^(.+?)\\s*(==|!=|<=|>=|<|>)\\s*(.+)$"
+        ).matcher(expression);
+        if (comparison.matches()) return ValueType.BOOLEAN;
+        Matcher logical = Pattern.compile("^(.+?)\\s*(&&|\\|\\|)\\s*(.+)$")
+            .matcher(expression);
+        if (logical.matches()) return ValueType.BOOLEAN;
+
+        Matcher arithmetic = Pattern.compile(
+            "^(.+?)\\s*([+\\-*/%])\\s*(.+)$"
+        ).matcher(expression);
+        if (arithmetic.matches()) {
+            return inferType(arithmetic.group(1)) == ValueType.DOUBLE
+                    || inferType(arithmetic.group(3)) == ValueType.DOUBLE
+                ? ValueType.DOUBLE : ValueType.INT;
+        }
+        Matcher unary = Pattern.compile("^([!+\\-])\\s*(.+)$")
+            .matcher(expression);
+        if (unary.matches()) {
+            return unary.group(1).equals("!")
+                ? ValueType.BOOLEAN : inferType(unary.group(2));
+        }
+
+        ValueType variableType = variableTypes.get(expression);
+        if (variableType == null) {
+            throw new IllegalArgumentException(
+                "Unknown TAC variable or expression: " + expression
+            );
+        }
+        return variableType;
+    }
+
+    private void emitComparison(String left, String operator, String right) {
+        ValueType leftType = inferType(left);
+        ValueType rightType = inferType(right);
+        boolean useDouble = leftType == ValueType.DOUBLE
+            || rightType == ValueType.DOUBLE;
+
+        leftType = emitExpression(left);
+        if (useDouble) convert(leftType, ValueType.DOUBLE);
+        rightType = emitExpression(right);
+        if (useDouble) convert(rightType, ValueType.DOUBLE);
+
+        int opcode;
+        if (useDouble) {
+            method.visitInsn(DCMPL);
+            switch (operator) {
+                case "==": opcode = IFEQ; break;
+                case "!=": opcode = IFNE; break;
+                case "<": opcode = IFLT; break;
+                case "<=": opcode = IFLE; break;
+                case ">": opcode = IFGT; break;
+                case ">=": opcode = IFGE; break;
+                default:
+                    throw new IllegalArgumentException(
+                        "Unsupported comparison operator: " + operator
+                    );
+            }
+        } else {
+            switch (operator) {
+                case "==": opcode = IF_ICMPEQ; break;
+                case "!=": opcode = IF_ICMPNE; break;
+                case "<": opcode = IF_ICMPLT; break;
+                case "<=": opcode = IF_ICMPLE; break;
+                case ">": opcode = IF_ICMPGT; break;
+                case ">=": opcode = IF_ICMPGE; break;
+                default:
+                    throw new IllegalArgumentException(
+                        "Unsupported comparison operator: " + operator
+                    );
+            }
+        }
+
+        Label trueLabel = new Label();
+        Label endLabel = new Label();
+        method.visitJumpInsn(opcode, trueLabel);
+        method.visitInsn(ICONST_0);
+        method.visitJumpInsn(GOTO, endLabel);
+        method.visitLabel(trueLabel);
+        method.visitInsn(ICONST_1);
+        method.visitLabel(endLabel);
+    }
+
+    private ValueType emitValue(String expression) {
         expression = expression.trim();
 
         if (expression.matches("-?\\d+")) {
-            int value = Integer.parseInt(expression);
-            method.visitLdcInsn(value);
-            return true;
+            method.visitLdcInsn(Integer.parseInt(expression));
+            return ValueType.INT;
         }
-
-        if (expression.equals("true")) {
-            method.visitInsn(ICONST_1);
-            return true;
+        if (expression.matches("-?\\d+\\.\\d+")) {
+            method.visitLdcInsn(Double.parseDouble(expression));
+            return ValueType.DOUBLE;
         }
-
-        if (expression.equals("false")) {
-            method.visitInsn(ICONST_0);
-            return true;
+        if (expression.equals("true") || expression.equals("false")) {
+            method.visitInsn(expression.equals("true") ? ICONST_1 : ICONST_0);
+            return ValueType.BOOLEAN;
         }
-
-        if (expression.matches("[a-zA-Z_$][a-zA-Z0-9_$]*")) {
-
-            Integer slot = variables.get(expression);
-
-            if (slot == null) {
-                throw new IllegalArgumentException(
-                    "Unknown TAC variable: " + expression
-                );
-            }
-
-            method.visitVarInsn(ILOAD, slot);
-            return true;
-        }
-
-        if (expression.startsWith("\"")
-                && expression.endsWith("\"")) {
+        if (expression.startsWith("\"") && expression.endsWith("\"")) {
             method.visitLdcInsn(
                 expression.substring(1, expression.length() - 1)
             );
-            return false;
+            return ValueType.STRING;
+        }
+        if (expression.matches("^[a-zA-Z_$][a-zA-Z0-9_$]*\\[.*]$")) {
+            return emitExpression(expression);
+        }
+        if (expression.startsWith("read")) {
+            String methodName;
+            String descriptor;
+            switch (expression) {
+                case "readInt":
+                    methodName = "nextInt";
+                    descriptor = "()I";
+                    break;
+                case "readFloat":
+                    methodName = "nextFloat";
+                    descriptor = "()F";
+                    break;
+                case "readDouble":
+                    methodName = "nextDouble";
+                    descriptor = "()D";
+                    break;
+                case "readLine":
+                    methodName = "nextLine";
+                    descriptor = "()Ljava/lang/String;";
+                    break;
+                default:
+                    throw new IllegalArgumentException(
+                        "Unsupported input operation: " + expression
+                    );
+            }
+            method.visitVarInsn(ALOAD, 1);
+            method.visitMethodInsn(
+                INVOKEVIRTUAL, "java/util/Scanner", methodName,
+                descriptor, false
+            );
+            if (expression.equals("readFloat")) method.visitInsn(F2D);
+            return inferType(expression);
+        }
+
+        Integer slot = variables.get(expression);
+        ValueType type = variableTypes.get(expression);
+        if (slot != null && type != null) {
+            method.visitVarInsn(loadOpcode(type), slot);
+            return type;
         }
 
         throw new IllegalArgumentException(
-            "Unsupported TAC expression: " + expression
+            "Unknown TAC variable or expression: " + expression
         );
+    }
+
+    private void convert(ValueType from, ValueType to) {
+        if (from == to) return;
+        if (from == ValueType.INT && to == ValueType.DOUBLE) {
+            method.visitInsn(I2D);
+            return;
+        }
+        if (from == ValueType.DOUBLE && to == ValueType.INT) {
+            method.visitInsn(D2I);
+            return;
+        }
+        if (from == ValueType.BOOLEAN && to == ValueType.INT) return;
+        throw new IllegalArgumentException(
+            "Cannot convert " + from + " to " + to + "."
+        );
+    }
+
+    private int intArithmeticOpcode(String operator) {
+        switch (operator) {
+            case "+": return IADD;
+            case "-": return ISUB;
+            case "*": return IMUL;
+            case "/": return IDIV;
+            case "%": return IREM;
+            default: throw new IllegalArgumentException(
+                "Unsupported arithmetic operator: " + operator
+            );
+        }
+    }
+
+    private int doubleArithmeticOpcode(String operator) {
+        switch (operator) {
+            case "+": return DADD;
+            case "-": return DSUB;
+            case "*": return DMUL;
+            case "/": return DDIV;
+            case "%": return DREM;
+            default: throw new IllegalArgumentException(
+                "Unsupported arithmetic operator: " + operator
+            );
+        }
+    }
+
+    private int loadOpcode(ValueType type) {
+        switch (type) {
+            case DOUBLE: return DLOAD;
+            case STRING:
+            case INT_ARRAY: return ALOAD;
+            default: return ILOAD;
+        }
+    }
+
+    private int storeOpcode(ValueType type) {
+        switch (type) {
+            case DOUBLE: return DSTORE;
+            case STRING:
+            case INT_ARRAY: return ASTORE;
+            default: return ISTORE;
+        }
     }
 
     private static class ClassReaderHelper {

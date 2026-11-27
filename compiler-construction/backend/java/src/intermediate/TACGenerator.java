@@ -5,7 +5,9 @@ import ast.ASTNode;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +16,7 @@ public class TACGenerator {
 
     private final List<String> code = new ArrayList<>();
     private final Map<String, String> constants = new HashMap<>();
+    private final Deque<String> breakTargets = new ArrayDeque<>();
 
     private int tempCount;
     private int labelCount;
@@ -34,6 +37,7 @@ public class TACGenerator {
 
         code.clear();
         constants.clear();
+        breakTargets.clear();
 
         tempCount = 0;
         labelCount = 0;
@@ -60,8 +64,16 @@ public class TACGenerator {
                 generateDeclaration(node);
                 break;
 
+            case "ARRAY_DECL":
+                generateArrayDeclaration(node);
+                break;
+
             case "ASSIGNMENT":
                 generateAssignment(node);
+                break;
+
+            case "ARRAY_ASSIGN":
+                generateArrayAssignment(node);
                 break;
 
             case "PRINT":
@@ -81,6 +93,16 @@ public class TACGenerator {
 
             case "FOR":
                 generateFor(node);
+                break;
+
+            case "SWITCH":
+                generateSwitch(node);
+                break;
+
+            case "BREAK":
+                if (!breakTargets.isEmpty()) {
+                    code.add("goto " + breakTargets.peek());
+                }
                 break;
 
             default:
@@ -127,6 +149,19 @@ public class TACGenerator {
         } else {
             constants.remove(variable);
         }
+    }
+
+    private void generateArrayDeclaration(ASTNode node) {
+        String name = node.getChildren().get(0).getValue();
+        String size = generateExpression(node.getChildren().get(1));
+        code.add(name + " = newarray int " + size);
+        constants.remove(name);
+    }
+
+    private void generateArrayAssignment(ASTNode node) {
+        String index = generateExpression(node.getChildren().get(0));
+        String value = generateExpression(node.getChildren().get(1));
+        code.add(node.getValue() + "[" + index + "] = " + value);
     }
 
     private void generateIf(ASTNode node) {
@@ -180,7 +215,9 @@ public class TACGenerator {
         code.add("ifFalse " + condition + " goto " + end);
 
         constants.clear();
+        breakTargets.push(end);
         generateNode(children.get(1));
+        breakTargets.pop();
 
         code.add("goto " + start);
         code.add(end + ":");
@@ -209,7 +246,9 @@ public class TACGenerator {
         }
 
         constants.clear();
+        breakTargets.push(end);
         generateNode(children.get(3));
+        breakTargets.pop();
 
         constants.clear();
 
@@ -220,6 +259,50 @@ public class TACGenerator {
         code.add("goto " + start);
         code.add(end + ":");
 
+        constants.clear();
+    }
+
+    private void generateSwitch(ASTNode node) {
+        List<ASTNode> children = node.getChildren();
+        if (children.isEmpty()) return;
+
+        String selector = generateExpression(children.get(0));
+        String end = newLabel();
+        String defaultLabel = end;
+        List<String> branchLabels = new ArrayList<>();
+
+        for (int i = 1; i < children.size(); i++) {
+            ASTNode branch = children.get(i);
+            String branchLabel = newLabel();
+            branchLabels.add(branchLabel);
+
+            if (branch.getType().equals("DEFAULT")) {
+                defaultLabel = branchLabel;
+                continue;
+            }
+
+            String nextCheck = newLabel();
+            ASTNode comparison = new ASTNode("BINARY", "==", node.getLine());
+            comparison.addChild(new ASTNode("LITERAL", selector, node.getLine()));
+            comparison.addChild(branch.getChildren().get(0));
+            String condition = generateExpression(comparison);
+            code.add("ifFalse " + condition + " goto " + nextCheck);
+            code.add("goto " + branchLabel);
+            code.add(nextCheck + ":");
+        }
+
+        code.add("goto " + defaultLabel);
+        breakTargets.push(end);
+
+        for (int i = 1; i < children.size(); i++) {
+            ASTNode branch = children.get(i);
+            code.add(branchLabels.get(i - 1) + ":");
+            ASTNode body = branch.getChildren().get(branch.getChildren().size() - 1);
+            generateNode(body);
+        }
+
+        breakTargets.pop();
+        code.add(end + ":");
         constants.clear();
     }
 
@@ -241,6 +324,10 @@ public class TACGenerator {
 
                 return variable;
             }
+
+            case "ARRAY_ACCESS":
+                return node.getValue() + "["
+                    + generateExpression(node.getChildren().get(0)) + "]";
 
             case "BINARY": {
 
@@ -289,6 +376,22 @@ public class TACGenerator {
 
                 return temp;
             }
+
+            case "INPUT":
+                switch (node.getValue()) {
+                    case "int": return "readInt";
+                    case "float": return "readFloat";
+                    case "double": return "readDouble";
+                    case "String": return "readLine";
+                    default:
+                        throw new IllegalArgumentException(
+                            "Unsupported Scanner input type: " + node.getValue()
+                        );
+                }
+
+            case "CAST":
+                return node.getValue() + "("
+                    + generateExpression(node.getChildren().get(0)) + ")";
 
             default:
                 return "";
