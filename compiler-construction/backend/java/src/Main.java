@@ -174,7 +174,7 @@ public class Main {
                         new BytecodeGenerator();
 
                     BytecodeGenerator.Result result =
-                        generator.generate(optimizedTac);
+                        generator.generate(ast.getValue(), optimizedTac);
 
                     generatedBytecode = result.bytecode;
                     generatedClassFile = result.filePath;
@@ -231,6 +231,7 @@ public class Main {
                 "{\"success\":false,"
                 + "\"errorType\":" + jsonString(category) + ","
                 + "\"errors\":[" + jsonString(message) + "],"
+                + "\"className\":\"\","
                 + "\"tokens\":[],\"ast\":null,\"symbols\":[],"
                 + "\"tac\":[],\"optimizedTac\":[],"
                 + "\"programOutput\":[],\"runtimeErrors\":[],"
@@ -605,6 +606,9 @@ public class Main {
             .append(errors.isEmpty()
                 && runtimeErrors.isEmpty()
                 && codeGenerationError.isEmpty());
+
+        json.append(",\"className\":")
+            .append(jsonString(ast.getValue()));
 
         json.append(",\"tokens\":[");
 

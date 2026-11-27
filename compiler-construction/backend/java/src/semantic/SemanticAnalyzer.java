@@ -441,6 +441,11 @@ public class SemanticAnalyzer {
 
         if (leftType == null || rightType == null) return null;
 
+        if (operator.equals("+")
+                && (leftType.equals("String") || rightType.equals("String"))) {
+            return "String";
+        }
+
         switch (operator) {
 
             case "+":

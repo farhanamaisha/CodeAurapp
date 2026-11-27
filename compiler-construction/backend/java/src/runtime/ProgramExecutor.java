@@ -11,6 +11,7 @@ public class ProgramExecutor {
 
     private final Map<String, Object> variables = new LinkedHashMap<>();
     private final List<String> output = new ArrayList<>();
+    private final StringBuilder currentLine = new StringBuilder();
 
     private Scanner inputScanner;
     private static final int MAX_STEPS = 100000;
@@ -19,11 +20,15 @@ public class ProgramExecutor {
     public List<String> execute(ASTNode root, String input) {
         variables.clear();
         output.clear();
+        currentLine.setLength(0);
         steps = 0;
         inputScanner = new Scanner(input == null ? "" : input);
 
         try {
             executeNode(root);
+            if (currentLine.length() > 0) {
+                output.add(currentLine.toString());
+            }
             return output;
         } finally {
             inputScanner.close();
@@ -104,9 +109,13 @@ public class ProgramExecutor {
             }
 
             case "PRINT":
-                output.add(formatOutput(
+                currentLine.append(formatOutput(
                     evaluate(node.getChildren().get(0))
                 ));
+                if (!"print".equals(node.getValue())) {
+                    output.add(currentLine.toString());
+                    currentLine.setLength(0);
+                }
                 break;
 
             case "IF":
@@ -298,7 +307,7 @@ public class ProgramExecutor {
         try {
             switch (type) {
                 case "int":
-                    return (double) inputScanner.nextInt();
+                    return inputScanner.nextInt();
 
                 case "float":
                     return (double) inputScanner.nextFloat();

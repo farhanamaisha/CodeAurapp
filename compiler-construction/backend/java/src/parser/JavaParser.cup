@@ -3,8 +3,11 @@ package parser;
 
 import java_cup.runtime.*;
 import ast.ASTNode;
+import util.JavaIdentifiers;
 
 parser code {:
+    private String declaredClassName;
+
     private ASTNode node(String type, String value, int line) {
         return new ASTNode(type, value, line);
     }
@@ -97,6 +100,7 @@ non terminal ASTNode increment_statement;
 non terminal String type_name;
 non terminal String qualified_name;
 non terminal String cast_type;
+non terminal String class_name;
 
 /* Operator precedence */
 precedence nonassoc IFX;
@@ -118,7 +122,9 @@ start with program;
 program ::=
     import_declaration:i class_decl:c
     {:
-        ASTNode root = new ASTNode("PROGRAM", null, lineOf(cleft));
+        ASTNode root = new ASTNode(
+            "PROGRAM", declaredClassName, lineOf(cleft)
+        );
         root.addChild(c);
         RESULT = root;
     :}
@@ -148,11 +154,71 @@ qualified_name ::=
     ;
 
 class_decl ::=
-    PUBLIC:pub CLASS IDENTIFIER:name LBRACE main_method:m RBRACE
-    {: RESULT = m; :}
+    PUBLIC:pub CLASS class_name:name LBRACE main_method:m RBRACE
+    {:
+        if (!JavaIdentifiers.isValidClassIdentifier(name)) {
+            throw new IllegalArgumentException(
+                "Syntax Error: invalid Java class identifier '" + name + "'."
+            );
+        }
+        declaredClassName = name;
+        RESULT = m;
+    :}
     |
-    CLASS:classToken IDENTIFIER:name LBRACE main_method:m RBRACE
-    {: RESULT = m; :}
+    CLASS:classToken class_name:name LBRACE main_method:m RBRACE
+    {:
+        if (!JavaIdentifiers.isValidClassIdentifier(name)) {
+            throw new IllegalArgumentException(
+                "Syntax Error: invalid Java class identifier '" + name + "'."
+            );
+        }
+        declaredClassName = name;
+        RESULT = m;
+    :}
+    ;
+
+class_name ::=
+    IDENTIFIER:name
+    {: RESULT = name; :}
+    |
+    MAIN:token
+    {: RESULT = token.toString(); :}
+    |
+    STRING:token
+    {: RESULT = token.toString(); :}
+    |
+    BOOLEAN:token
+    {: RESULT = token.toString(); :}
+    |
+    SCANNER:token
+    {: RESULT = token.toString(); :}
+    |
+    IN:token
+    {: RESULT = token.toString(); :}
+    |
+    NEXT_INT:token
+    {: RESULT = token.toString(); :}
+    |
+    NEXT_FLOAT:token
+    {: RESULT = token.toString(); :}
+    |
+    NEXT_DOUBLE:token
+    {: RESULT = token.toString(); :}
+    |
+    NEXT_LINE:token
+    {: RESULT = token.toString(); :}
+    |
+    SYSTEM:token
+    {: RESULT = token.toString(); :}
+    |
+    OUT:token
+    {: RESULT = token.toString(); :}
+    |
+    PRINTLN:token
+    {: RESULT = token.toString(); :}
+    |
+    PRINT:token
+    {: RESULT = token.toString(); :}
     ;
 
 main_method ::=
@@ -436,13 +502,20 @@ print_statement ::=
     SYSTEM:sys DOT OUT DOT PRINTLN
     LPAREN expression:e RPAREN SEMICOLON
     {:
-        RESULT = new ASTNode("PRINT", null, lineOf(sysleft));
+        RESULT = new ASTNode("PRINT", "println", lineOf(sysleft));
+        RESULT.addChild(e);
+    :}
+    |
+    SYSTEM:sys DOT OUT DOT PRINT
+    LPAREN expression:e RPAREN SEMICOLON
+    {:
+        RESULT = new ASTNode("PRINT", "print", lineOf(sysleft));
         RESULT.addChild(e);
     :}
     |
     PRINT:printToken LPAREN expression:e RPAREN SEMICOLON
     {:
-        RESULT = new ASTNode("PRINT", null, lineOf(printTokenleft));
+        RESULT = new ASTNode("PRINT", "println", lineOf(printTokenleft));
         RESULT.addChild(e);
     :}
     ;
