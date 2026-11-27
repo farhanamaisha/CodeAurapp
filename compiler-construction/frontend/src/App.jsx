@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "./styles/App.css";
 
 const starterCode = {
-Java: `public class Test {
+Java: `public class MyProgram {
     public static void main(String[] args) {
         int a = 10;
         int b = 20;
@@ -516,34 +516,6 @@ export default function App() {
                     </button>
                 </div>
 
-
-                <textarea
-                    className="code-editor"
-                    spellCheck="false"
-                    value={source}
-                    onChange={e => setSource(e.target.value)}
-                    placeholder={`Write ${language} code here...`}
-                />
-            </section>
-
-            {/* STANDARD INPUT */}
-
-            <section className="editor-section">
-                <h2>Standard Input</h2>
-
-                <p className="hint">
-                    Enter values in the order your program reads them. For Java,
-                    nextLine() reads the rest of the current line, so put text
-                    and numeric inputs on separate lines when mixing Scanner methods.
-                </p>
-
-                <textarea
-                    className="input-editor"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    placeholder={"Example:\nFarhana Maisha\n25\n85.5"}
-                />
-=======
                 <div className="code-editor-wrapper">
                     <div
                         className="line-numbers"
@@ -568,8 +540,9 @@ export default function App() {
                         placeholder={`Write ${language} code here...`}
                     />
                 </div>
-
+            
             </section>
+
 
             {/* COMPILATION RESULTS */}
 
@@ -585,6 +558,11 @@ export default function App() {
                                 : "✕ Compilation Failed"}
                         </span>
                     </div>
+                    {language === "Java" && result.className && (
+                        <p className="hint">
+                            Compiled Java class: {result.className}
+                        </p>
+                    )}
 
                     {/* DIAGNOSTICS */}
 
