@@ -78,7 +78,9 @@ public class TACGenerator {
 
             case "PRINT":
                 if (!node.getChildren().isEmpty()) {
-                    code.add("print " +
+                    String instruction = "print".equals(node.getValue())
+                        ? "write " : "print ";
+                    code.add(instruction +
                         generateExpression(node.getChildren().get(0)));
                 }
                 break;

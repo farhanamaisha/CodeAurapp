@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import util.JavaIdentifiers;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -41,7 +42,15 @@ public class BytecodeGenerator {
     private int nextSlot = 2;
     private MethodVisitor method;
 
-    public Result generate(List<String> instructions) throws Exception {
+    public Result generate(String className, List<String> instructions)
+            throws Exception {
+
+        if (!JavaIdentifiers.isValidClassIdentifier(className)) {
+            throw new IllegalArgumentException(
+                "Code Generation Error: Invalid Java class identifier: "
+                + className
+            );
+        }
 
         variables.clear();
         variableTypes.clear();
@@ -55,7 +64,7 @@ public class BytecodeGenerator {
         writer.visit(
             V17,
             ACC_PUBLIC | ACC_SUPER,
-            "GeneratedProgram",
+            className,
             null,
             "java/lang/Object",
             null
@@ -129,7 +138,7 @@ public class BytecodeGenerator {
 
         File classFile = new File(
             directory,
-            "GeneratedProgram.class"
+            className + ".class"
         );
 
         try (FileOutputStream output =
@@ -142,30 +151,6 @@ public class BytecodeGenerator {
         TraceClassVisitor tracer = new TraceClassVisitor(
             new PrintWriter(text)
         );
-
-        ClassWriter displayWriter = new ClassWriter(0);
-        displayWriter.visit(
-            V17,
-            ACC_PUBLIC | ACC_SUPER,
-            "GeneratedProgram",
-            null,
-            "java/lang/Object",
-            null
-        );
-
-        MethodVisitor displayMethod = displayWriter.visitMethod(
-            ACC_PUBLIC | ACC_STATIC,
-            "main",
-            "([Ljava/lang/String;)V",
-            null,
-            null
-        );
-
-        displayMethod.visitCode();
-        displayMethod.visitInsn(RETURN);
-        displayMethod.visitMaxs(0, 0);
-        displayMethod.visitEnd();
-        displayWriter.visitEnd();
 
         new ClassReaderHelper().accept(classBytes, tracer);
 
@@ -214,7 +199,8 @@ public class BytecodeGenerator {
             return;
         }
 
-        if (line.startsWith("print ")) {
+        if (line.startsWith("print ") || line.startsWith("write ")) {
+            boolean newline = line.startsWith("print ");
             String expression = line.substring(6).trim();
 
             method.visitFieldInsn(
@@ -246,7 +232,7 @@ public class BytecodeGenerator {
             method.visitMethodInsn(
                 INVOKEVIRTUAL,
                 "java/io/PrintStream",
-                "println",
+                newline ? "println" : "print",
                 descriptor,
                 false
             );
@@ -344,7 +330,7 @@ public class BytecodeGenerator {
         if (expression.matches("-?\\d+(\\.\\d+)?")
                 || expression.equals("true")
                 || expression.equals("false")
-                || expression.startsWith("\"")
+                || (expression.startsWith("\"") && expression.endsWith("\""))
                 || expression.matches("read(Int|Float|Double|Line)")
                 || expression.matches("[a-zA-Z_$][a-zA-Z0-9_$]*")) {
             return emitValue(expression);
@@ -378,10 +364,35 @@ public class BytecodeGenerator {
             String left = arithmetic.group(1).trim();
             String operator = arithmetic.group(2);
             String right = arithmetic.group(3).trim();
+            ValueType leftType = inferType(left);
+            ValueType rightType = inferType(right);
+            if (operator.equals("+")
+                    && (leftType == ValueType.STRING
+                        || rightType == ValueType.STRING)) {
+                method.visitTypeInsn(NEW, "java/lang/StringBuilder");
+                method.visitInsn(DUP);
+                method.visitMethodInsn(
+                    INVOKESPECIAL,
+                    "java/lang/StringBuilder",
+                    "<init>",
+                    "()V",
+                    false
+                );
+                appendStringValue(left, leftType);
+                appendStringValue(right, rightType);
+                method.visitMethodInsn(
+                    INVOKEVIRTUAL,
+                    "java/lang/StringBuilder",
+                    "toString",
+                    "()Ljava/lang/String;",
+                    false
+                );
+                return ValueType.STRING;
+            }
             ValueType resultType = inferType(expression);
-            ValueType leftType = emitExpression(left);
+            leftType = emitExpression(left);
             convert(leftType, resultType);
-            ValueType rightType = emitExpression(right);
+            rightType = emitExpression(right);
             convert(rightType, resultType);
 
             if (resultType == ValueType.DOUBLE) {
@@ -448,6 +459,11 @@ public class BytecodeGenerator {
             "^(.+?)\\s*([+\\-*/%])\\s*(.+)$"
         ).matcher(expression);
         if (arithmetic.matches()) {
+            if (arithmetic.group(2).equals("+")
+                    && (inferType(arithmetic.group(1)) == ValueType.STRING
+                        || inferType(arithmetic.group(3)) == ValueType.STRING)) {
+                return ValueType.STRING;
+            }
             return inferType(arithmetic.group(1)) == ValueType.DOUBLE
                     || inferType(arithmetic.group(3)) == ValueType.DOUBLE
                 ? ValueType.DOUBLE : ValueType.INT;
@@ -466,6 +482,36 @@ public class BytecodeGenerator {
             );
         }
         return variableType;
+    }
+
+    private void appendStringValue(String expression, ValueType valueType) {
+        emitExpression(expression);
+        String descriptor;
+        switch (valueType) {
+            case INT:
+                descriptor = "(I)Ljava/lang/StringBuilder;";
+                break;
+            case DOUBLE:
+                descriptor = "(D)Ljava/lang/StringBuilder;";
+                break;
+            case BOOLEAN:
+                descriptor = "(Z)Ljava/lang/StringBuilder;";
+                break;
+            case STRING:
+                descriptor = "(Ljava/lang/String;)Ljava/lang/StringBuilder;";
+                break;
+            default:
+                throw new IllegalArgumentException(
+                    "Unsupported string concatenation type: " + valueType
+                );
+        }
+        method.visitMethodInsn(
+            INVOKEVIRTUAL,
+            "java/lang/StringBuilder",
+            "append",
+            descriptor,
+            false
+        );
     }
 
     private void emitComparison(String left, String operator, String right) {

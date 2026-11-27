@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "./styles/App.css";
 
 const starterCode = {
-Java: `public class Test {
+Java: `public class MyProgram {
     public static void main(String[] args) {
         int a = 10;
         int b = 20;
@@ -585,6 +585,11 @@ export default function App() {
                                 : "✕ Compilation Failed"}
                         </span>
                     </div>
+                    {language === "Java" && result.className && (
+                        <p className="hint">
+                            Compiled Java class: {result.className}
+                        </p>
+                    )}
 
                     {/* DIAGNOSTICS */}
 

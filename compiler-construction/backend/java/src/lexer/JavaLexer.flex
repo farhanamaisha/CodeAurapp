@@ -24,9 +24,10 @@ import parser.sym;
     }
 %}
 
-Letter = [a-zA-Z_]
+IdentifierStart = [:jletter:]
+IdentifierPart = [:jletterdigit:]
 Digit = [0-9]
-Identifier = {Letter}({Letter}|{Digit})*
+Identifier = {IdentifierStart}{IdentifierPart}*
 Integer = {Digit}+
 Float = {Digit}+"."{Digit}+
 StringLiteral = \"([^\"\\]|\\.)*\"
